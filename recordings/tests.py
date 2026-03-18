@@ -1,14 +1,14 @@
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from django.db import models
 from django.test import TestCase, SimpleTestCase
 
 from recordings.models import Chunk, Recording, RecordingStatus
 from recordings.services import create_recording, normalize_audio
-from recordings.audio import AudioNormalizationError, _run_ffmpeg_normalization
+from recordings.audio import AudioNormalizationError, AudioProbeError, _run_ffmpeg_normalization, probe_audio_duration_milliseconds
 
 
 class ChunkMetaTests(TestCase):
@@ -220,3 +220,137 @@ class RunFfmpegNormalizationTests(SimpleTestCase):
                 input_path=Path("/tmp/original.m4a"),
                 output_path=Path("/tmp/normalized.wav"),
             )
+
+
+class ProbeAudioDurationMsTests(SimpleTestCase):
+    def test_probe_audio_duration_ms_returns_integer_milliseconds(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "audio.m4a"
+            input_path.write_bytes(b"fake-audio")
+
+            completed_process = Mock(stdout="12.345\n", stderr="")
+
+            with patch(
+                "recordings.audio.subprocess.run",
+                return_value=completed_process,
+            ) as mock_run:
+                duration_ms = probe_audio_duration_milliseconds(input_path=input_path)
+
+            self.assertEqual(duration_ms, 12_345)
+            mock_run.assert_called_once()
+
+    def test_probe_audio_duration_ms_rejects_blank_string_path(self) -> None:
+        with self.assertRaisesMessage(ValueError, "input_path must not be empty"):
+            probe_audio_duration_milliseconds(input_path=Path("   "))
+
+    def test_probe_audio_duration_ms_raises_if_file_missing(self) -> None:
+        missing_path = Path("/tmp/definitely_missing_audio_file.m4a")
+
+        with self.assertRaises(FileNotFoundError):
+            probe_audio_duration_milliseconds(input_path=missing_path)
+
+    @patch("recordings.audio.subprocess.run", side_effect=FileNotFoundError)
+    def test_probe_audio_duration_ms_raises_clear_error_if_ffprobe_missing(
+        self,
+        mock_run: Mock,
+    ) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "audio.m4a"
+            input_path.write_bytes(b"fake-audio")
+
+            with self.assertRaisesMessage(
+                AudioProbeError,
+                "ffprobe executable was not found",
+            ):
+                probe_audio_duration_milliseconds(input_path=input_path)
+
+    @patch(
+        "recordings.audio.subprocess.run",
+        side_effect=subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["ffprobe"],
+            stderr="invalid data found",
+        ),
+    )
+    def test_probe_audio_duration_ms_raises_clear_error_on_ffprobe_failure(
+        self,
+        mock_run: Mock,
+    ) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "audio.m4a"
+            input_path.write_bytes(b"fake-audio")
+
+            with self.assertRaisesMessage(
+                AudioProbeError,
+                "ffprobe failed: invalid data found",
+            ):
+                probe_audio_duration_milliseconds(input_path=input_path)
+
+    def test_probe_audio_duration_ms_rejects_empty_stdout(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "audio.m4a"
+            input_path.write_bytes(b"fake-audio")
+
+            completed_process = Mock(stdout="   \n", stderr="")
+
+            with patch(
+                "recordings.audio.subprocess.run",
+                return_value=completed_process,
+            ):
+                with self.assertRaisesMessage(
+                    AudioProbeError,
+                    "ffprobe returned an empty duration",
+                ):
+                    probe_audio_duration_milliseconds(input_path=input_path)
+
+    def test_probe_audio_duration_ms_rejects_non_numeric_stdout(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "audio.m4a"
+            input_path.write_bytes(b"fake-audio")
+
+            completed_process = Mock(stdout="not-a-number\n", stderr="")
+
+            with patch(
+                "recordings.audio.subprocess.run",
+                return_value=completed_process,
+            ):
+                with self.assertRaisesMessage(
+                    AudioProbeError,
+                    "ffprobe returned a non-numeric duration: 'not-a-number'",
+                ):
+                    probe_audio_duration_milliseconds(input_path=input_path)
+
+    def test_probe_audio_duration_ms_rejects_non_positive_duration(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "audio.m4a"
+            input_path.write_bytes(b"fake-audio")
+
+            completed_process = Mock(stdout="0\n", stderr="")
+
+            with patch(
+                "recordings.audio.subprocess.run",
+                return_value=completed_process,
+            ):
+                with self.assertRaisesMessage(
+                    AudioProbeError,
+                    "ffprobe returned a non-positive duration: 0.0",
+                ):
+                    probe_audio_duration_milliseconds(input_path=input_path)
+
+    def test_probe_audio_duration_ms_logs_start_and_completion(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "audio.m4a"
+            input_path.write_bytes(b"fake-audio")
+
+            completed_process = Mock(stdout="12.345\n", stderr="")
+
+            with patch(
+                "recordings.audio.subprocess.run",
+                return_value=completed_process,
+            ):
+                with self.assertLogs("app.recordings.audio", level="INFO") as captured:
+                    probe_audio_duration_milliseconds(input_path=input_path)
+
+            output = "\n".join(captured.output)
+            self.assertIn("audio_probe_started", output)
+            self.assertIn("audio_probe_completed", output)
