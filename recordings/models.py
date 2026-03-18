@@ -1,4 +1,5 @@
 import uuid
+from unicodedata import name
 
 from django.db import models
 from django.utils import timezone
@@ -35,7 +36,7 @@ class Recording(models.Model):
     id =  models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     original_file_name = models.CharField(max_length=512)
     original_file_path = models.TextField()
-    normalized_file_path = models.TextField(blank=True)
+    normalized_file_path = models.TextField(blank=True, null=True)
     duration_milliseconds = models.BigIntegerField()
     status = models.CharField(
         max_length=32,
@@ -50,6 +51,15 @@ class Recording(models.Model):
         Metaclass for recordings
         """
         ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                        models.Q(status="uploaded", normalized_file_path__isnull=True)
+                        | models.Q(normalized_file_path__isnull=False)
+                ),
+                name="normalized_audio_state_consistency"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.original_file_name} ({self.status})"
