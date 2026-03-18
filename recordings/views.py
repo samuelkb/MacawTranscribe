@@ -6,7 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.shortcuts import render
 
-from recordings.services import ingest_uploaded_recording
+from recordings.services import upload_and_normalize_recording
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -21,7 +21,8 @@ def upload_recording_ui(request):
 @require_POST
 def upload_recording(request: HttpRequest) -> JsonResponse:
     """
-    Upload a recording and create it initial database entry. Expected multipart field name: file
+    Upload a recording, persist the original file, create its initial database entry and attempt normalization.
+    Expected multipart field name: file
     :param request:
     :return: A JSON payload describing the created recording
     """
@@ -33,7 +34,7 @@ def upload_recording(request: HttpRequest) -> JsonResponse:
         )
 
     try:
-        recording = ingest_uploaded_recording(uploaded_file=uploaded_file)
+        result = upload_and_normalize_recording(uploaded_file=uploaded_file)
     except ValueError as exc:
         logger.warning(
             "recording_upload_rejected",
@@ -57,14 +58,17 @@ def upload_recording(request: HttpRequest) -> JsonResponse:
                 "detail": "Recording ingestion failed",
             }, status=500,
         )
-    return JsonResponse(
-        {
+
+    recording = result.recording
+    payload = {
             "recording_id": str(recording.id),
             "original_file_name": recording.original_file_name,
             "duration_milliseconds": recording.duration_milliseconds,
             "status": recording.status,
             "original_file_path": recording.original_file_path,
-            "normalized_file_path": recording.normalized_file_path
-        },
-        status=201,
-    )
+            "normalized_file_path": recording.normalized_file_path,
+            "normalization_succeeded": result.normalization_succeeded,
+    }
+    if result.warning:
+        payload["warning"] = result.warning
+    return JsonResponse(payload, status=201)
