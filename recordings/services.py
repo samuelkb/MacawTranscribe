@@ -133,6 +133,33 @@ def get_recordings_base_dir() -> Path:
     configured = getattr(settings, "RECORDINGS_BASE_DIR", "data/recordings")
     return Path(configured)
 
+def _cleanup_failed_ingestion(*, saved_path: Path | None) -> None:
+    """
+    Clean up for a failed recording ingestion. If ingestion fails before the Recording row is created, remove any
+    saved file and remove its directory if it becomes empty.
+    :param saved_path:
+    :return: None
+    """
+    if saved_path is None:
+        return
+    try:
+        if saved_path.exists():
+            saved_path.unlink()
+        recording_dir = saved_path.parent
+        if recording_dir.exists():
+            try:
+                recording_dir.rmdir()
+            except OSError:
+                # Directory not empty
+                pass
+    except Exception:
+        logger.exception(
+            "recording_ingestion_cleanup_failed",
+            extra={
+                "saved_path": str(saved_path),
+            }
+        )
+
 def ingest_uploaded_recording(*, uploaded_file: UploadedFile) -> Recording:
     """
     Ingest an uploaded recording into the system. This orchestrates the initial upload pipeline:
@@ -140,6 +167,8 @@ def ingest_uploaded_recording(*, uploaded_file: UploadedFile) -> Recording:
     2. Persist the original uploaded file to disk
     3. Probe the audio duration
     4. Create the Recording row in the database
+
+    On failure before DB creation completes, the saved file is cleaned up.
     :param uploaded_file: Django uploaded file object received from a request
     :return: Recording: The created Recording instance
     :raises ValueError: If the uploaded file is invalid.
@@ -168,18 +197,22 @@ def ingest_uploaded_recording(*, uploaded_file: UploadedFile) -> Recording:
                 }
     )
 
-    saved_path = save_uploaded_file_atomic(
-        uploaded_file=uploaded_file,
-        destination_path=original_file_path,
-    )
-    duration_milliseconds = probe_audio_duration_milliseconds(input_path=saved_path)
-    recording = create_recording(
-        recording_id=recording_id,
-        original_file_name=original_file_name,
-        original_file_path=str(saved_path),
-        duration_milliseconds=duration_milliseconds
-    )
-
+    saved_path: Path | None = None
+    try:
+        saved_path = save_uploaded_file_atomic(
+            uploaded_file=uploaded_file,
+            destination_path=original_file_path,
+        )
+        duration_milliseconds = probe_audio_duration_milliseconds(input_path=saved_path)
+        recording = create_recording(
+            recording_id=recording_id,
+            original_file_name=original_file_name,
+            original_file_path=str(saved_path),
+            duration_milliseconds=duration_milliseconds
+        )
+    except Exception:
+        _cleanup_failed_ingestion(saved_path=saved_path)
+        raise
     logger.info("recording_ingestion_completed",
                 extra={
                     "recording_id": str(recording_id),

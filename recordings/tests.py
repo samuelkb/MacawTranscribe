@@ -7,6 +7,7 @@ from uuid import uuid4
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import models
 from django.test import TestCase, SimpleTestCase, override_settings
+from django.urls import reverse
 
 from recordings.files import build_recording_directory, build_original_file_path, save_uploaded_file_atomic
 from recordings.models import Chunk, Recording, RecordingStatus
@@ -460,3 +461,78 @@ class IngestUploadedRecordingTests(TestCase):
     def test_ingest_uploaded_recording_rejects_none_upload(self) -> None:
         with self.assertRaisesMessage(ValueError, "uploaded_file must not be None"):
             ingest_uploaded_recording(uploaded_file=None)  # type: ignore[arg-type]
+
+
+class UploadRecordingViewTests(TestCase):
+    def test_upload_recording_returns_201_and_payload(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            uploaded = SimpleUploadedFile(
+                "interview.m4a",
+                b"fake audio bytes",
+                content_type="audio/mp4",
+            )
+
+            with override_settings(RECORDINGS_BASE_DIR=tmp_dir):
+                with patch(
+                        "recordings.services.probe_audio_duration_milliseconds",
+                        return_value=125_000,
+                ):
+                    response = self.client.post(
+                        reverse("recordings:upload_recording"),
+                        {"file": uploaded},
+                    )
+
+        self.assertEqual(response.status_code, 201)
+
+        payload = response.json()
+        self.assertIn("recording_id", payload)
+        self.assertEqual(payload["original_file_name"], "interview.m4a")
+        self.assertEqual(payload["duration_milliseconds"], 125_000)
+        self.assertEqual(payload["status"], RecordingStatus.UPLOADED)
+        self.assertTrue(payload["original_file_path"].endswith("/original.m4a"))
+        self.assertIsNone(payload["normalized_file_path"])
+
+    def test_upload_recording_returns_400_when_file_is_missing(self) -> None:
+        response = self.client.post(reverse("recordings:upload_recording"), {})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "missing_file")
+
+    def test_upload_recording_returns_500_when_ingestion_fails(self) -> None:
+        uploaded = SimpleUploadedFile(
+            "interview.m4a",
+            b"fake audio bytes",
+            content_type="audio/mp4",
+        )
+
+        with patch(
+                "recordings.views.ingest_uploaded_recording",
+                side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.post(
+                reverse("recordings:upload_recording"),
+                {"file": uploaded},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["error"], "uploaded_failed")
+
+    def test_ingest_uploaded_recording_cleans_up_saved_file_if_probe_fails(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            uploaded = SimpleUploadedFile(
+                "interview.m4a",
+                b"fake audio bytes",
+                content_type="audio/mp4",
+            )
+
+            with override_settings(RECORDINGS_BASE_DIR=tmp_dir):
+                with patch(
+                        "recordings.services.probe_audio_duration_milliseconds",
+                        side_effect=RuntimeError("probe failed"),
+                ):
+                    with self.assertRaises(RuntimeError):
+                        ingest_uploaded_recording(uploaded_file=uploaded)
+
+            recordings_root = Path(tmp_dir)
+            all_files = list(recordings_root.rglob("*"))
+            self.assertEqual(all_files, [])
