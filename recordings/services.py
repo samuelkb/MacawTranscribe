@@ -8,7 +8,7 @@ from typing import Final
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 
-from MacawTranslate import settings
+from django.conf import settings
 from recordings.audio import _run_ffmpeg_normalization, probe_audio_duration_milliseconds
 from recordings.files import build_original_file_path, save_uploaded_file_atomic
 from recordings.models import Recording, RecordingStatus
