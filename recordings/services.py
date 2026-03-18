@@ -1,21 +1,32 @@
 import logging
 import subprocess
+from uuid import UUID, uuid4
 from pathlib import Path
 from typing import Final
 
+from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 
-from recordings.audio import _run_ffmpeg_normalization
+from MacawTranslate import settings
+from recordings.audio import _run_ffmpeg_normalization, probe_audio_duration_milliseconds
+from recordings.files import build_original_file_path, save_uploaded_file_atomic
 from recordings.models import Recording, RecordingStatus
 
-logger: Final[logging.Logger] = logging.getLogger("app.recordings")
+logger: Final[logging.Logger] = logging.getLogger(__name__)
 
-def create_recording(*, original_file_name: str, original_file_path: str, duration_milliseconds: int) -> Recording:
+def create_recording(
+        *,
+        recording_id: UUID | None = None,
+        original_file_name: str,
+        original_file_path: str,
+        duration_milliseconds: int
+) -> Recording:
     """
     Create a new recording entry in the database.
 
     This function is the first step of the ingestion pipeline. It persists the uploaded recording metadata and marks
     the recording as `uploaded`.
+    :param recording_id: Optional pre-generated recording ID. When omitted, a new UUID is created.
     :param original_file_name: The original filename provided by the user at upload time.
     :param original_file_path: The filesystem path where the original uploaded file was stored.
     :param duration_milliseconds: Total recording duration in milliseconds.
@@ -38,6 +49,7 @@ def create_recording(*, original_file_name: str, original_file_path: str, durati
 
     with transaction.atomic():
         recording = Recording.objects.create(
+            id= recording_id or uuid4(),
             original_file_name=filename,
             original_file_path=filepath,
             duration_milliseconds=duration_milliseconds,
@@ -109,6 +121,72 @@ def normalize_audio(*, recording: Recording) -> Recording:
             "status": recording.status,
             "normalized_file_path": recording.normalized_file_path,
         }
+    )
+
+    return recording
+
+def get_recordings_base_dir() -> Path:
+    """
+    Resolve the base directory where recording files are stored.
+    :return: Path: Base path for recording storage
+    """
+    configured = getattr(settings, "RECORDINGS_BASE_DIR", "data/recordings")
+    return Path(configured)
+
+def ingest_uploaded_recording(*, uploaded_file: UploadedFile) -> Recording:
+    """
+    Ingest an uploaded recording into the system. This orchestrates the initial upload pipeline:
+    1. Generate a recording ID
+    2. Persist the original uploaded file to disk
+    3. Probe the audio duration
+    4. Create the Recording row in the database
+    :param uploaded_file: Django uploaded file object received from a request
+    :return: Recording: The created Recording instance
+    :raises ValueError: If the uploaded file is invalid.
+    :raises UploadedFileSaveError: If the original file cannot be persisted.
+    :raises AudioProbeError: If the duration cannot be probed.
+    """
+    if uploaded_file is None:
+        raise ValueError("uploaded_file must not be None")
+    original_file_name = (uploaded_file.name or "").strip()
+    if not original_file_name:
+        raise ValueError("uploaded_file.name must not be empty")
+
+    recording_id = uuid4()
+    base_dir = get_recordings_base_dir()
+    original_file_path = build_original_file_path(
+        recording_id=recording_id,
+        original_file_name=original_file_name,
+        base_dir=base_dir,
+    )
+
+    logger.info("recording_ingestion_started",
+                extra={
+                    "recording_id": str(recording_id),
+                    "original_file_name": original_file_name,
+                    "destination_path": str(base_dir),
+                }
+    )
+
+    saved_path = save_uploaded_file_atomic(
+        uploaded_file=uploaded_file,
+        destination_path=original_file_path,
+    )
+    duration_milliseconds = probe_audio_duration_milliseconds(input_path=saved_path)
+    recording = create_recording(
+        recording_id=recording_id,
+        original_file_name=original_file_name,
+        original_file_path=str(saved_path),
+        duration_milliseconds=duration_milliseconds
+    )
+
+    logger.info("recording_ingestion_completed",
+                extra={
+                    "recording_id": str(recording_id),
+                    "original_file_name": recording.original_file_name,
+                    "duration_milliseconds": recording.duration_milliseconds,
+                    "status": recording.status,
+                }
     )
 
     return recording

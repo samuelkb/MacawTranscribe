@@ -4,7 +4,7 @@ from typing import Final
 
 from pathlib import Path
 
-logger: Final[logging.Logger] = logging.getLogger("app.recordings.audio")
+logger: Final[logging.Logger] = logging.getLogger(__name__)
 
 class AudioNormalizationError(RuntimeError):
     """

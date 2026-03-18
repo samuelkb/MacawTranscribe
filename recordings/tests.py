@@ -2,12 +2,15 @@ import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch, Mock
+from uuid import uuid4
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import models
-from django.test import TestCase, SimpleTestCase
+from django.test import TestCase, SimpleTestCase, override_settings
 
+from recordings.files import build_recording_directory, build_original_file_path, save_uploaded_file_atomic
 from recordings.models import Chunk, Recording, RecordingStatus
-from recordings.services import create_recording, normalize_audio
+from recordings.services import create_recording, normalize_audio, ingest_uploaded_recording
 from recordings.audio import AudioNormalizationError, AudioProbeError, _run_ffmpeg_normalization, probe_audio_duration_milliseconds
 
 
@@ -354,3 +357,106 @@ class ProbeAudioDurationMsTests(SimpleTestCase):
             output = "\n".join(captured.output)
             self.assertIn("audio_probe_started", output)
             self.assertIn("audio_probe_completed", output)
+
+
+class RecordingFilesTest(SimpleTestCase):
+    def test_build_recording_directory_uses_recording_id(self) -> None:
+        recording_id = uuid4()
+        base_dir = Path("data/recordings")
+
+        result = build_recording_directory(
+            recording_id=recording_id,
+            base_dir=base_dir,
+        )
+
+        self.assertEqual(result, base_dir / str(recording_id))
+
+    def test_build_original_file_path_preserves_extension(self) -> None:
+        recording_id = uuid4()
+        base_dir = Path("data/recordings")
+
+        result = build_original_file_path(
+            recording_id=recording_id,
+            original_file_name="interview.m4a",
+            base_dir=base_dir,
+        )
+
+        self.assertEqual(
+            result,
+            base_dir / str(recording_id) / "original.m4a",
+        )
+
+    def test_build_original_file_path_falls_back_to_bin_extension(self) -> None:
+        recording_id = uuid4()
+        base_dir = Path("data/recordings")
+
+        result = build_original_file_path(
+            recording_id=recording_id,
+            original_file_name="interview",
+            base_dir=base_dir,
+        )
+
+        self.assertEqual(
+            result,
+            base_dir / str(recording_id) / "original.bin",
+        )
+
+    def test_save_uploaded_file_atomic_writes_file_contents(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            destination = Path(tmp_dir) / "recordings" / "abc" / "original.m4a"
+            uploaded = SimpleUploadedFile(
+                "interview.m4a",
+                b"fake audio bytes",
+                content_type="audio/mp4",
+            )
+
+            saved = save_uploaded_file_atomic(
+                uploaded_file=uploaded,
+                destination_path=destination,
+            )
+
+            self.assertEqual(saved, destination)
+            self.assertTrue(destination.exists())
+            self.assertEqual(destination.read_bytes(), b"fake audio bytes")
+
+    def test_save_uploaded_file_atomic_rejects_none_upload(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            destination = Path(tmp_dir) / "recordings" / "abc" / "original.m4a"
+
+            with self.assertRaisesMessage(ValueError, "uploaded_file cannot be None"):
+                save_uploaded_file_atomic(
+                    uploaded_file=None,  # type: ignore[arg-type]
+                    destination_path=destination,
+                )
+
+
+class IngestUploadedRecordingTests(TestCase):
+    def test_ingest_uploaded_recording_saves_file_and_creates_row(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            uploaded = SimpleUploadedFile(
+                "interview.m4a",
+                b"fake audio bytes",
+                content_type="audio/mp4",
+            )
+
+            with override_settings(RECORDINGS_BASE_DIR=tmp_dir):
+                with patch(
+                        "recordings.services.probe_audio_duration_milliseconds",
+                        return_value=125_000,
+                ):
+                    recording = ingest_uploaded_recording(uploaded_file=uploaded)
+
+            self.assertEqual(Recording.objects.count(), 1)
+            self.assertEqual(recording.original_file_name, "interview.m4a")
+            self.assertEqual(recording.duration_milliseconds, 125_000)
+            self.assertEqual(recording.status, RecordingStatus.UPLOADED)
+
+            original_path = Path(recording.original_file_path)
+            self.assertTrue(original_path.exists())
+            self.assertEqual(original_path.read_bytes(), b"fake audio bytes")
+            self.assertEqual(original_path.name, "original.m4a")
+            self.assertEqual(original_path.parent.name, str(recording.id))
+
+    def test_ingest_uploaded_recording_rejects_none_upload(self) -> None:
+        with self.assertRaisesMessage(ValueError, "uploaded_file must not be None"):
+            ingest_uploaded_recording(uploaded_file=None)  # type: ignore[arg-type]
