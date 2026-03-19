@@ -6,6 +6,7 @@ from django.core.files.uploadedfile import UploadedFile
 
 from recordings.models import Recording
 from recordings.services import ingest_uploaded_recording, normalize_audio
+from speakers.services import run_diarization
 
 logger: Final[logging.Logger] = logging.getLogger("pipelines")
 
@@ -19,6 +20,20 @@ class UploadAndNormalizeResult:
     """
     recording: Recording
     normalization_succeeded: bool
+    warning: str | None = None
+
+@dataclass(frozen=True)
+class UploadNormalizedAndDiarizedResult:
+    """
+    Result of the upload + normalize + diarize orchestration flow.
+    :arg recording: The persisted recording row
+    :arg normalization_succeeded: Whether normalization completed successfully
+    :arg diarization_succeeded: Whether diarization completed successfully
+    :arg warning: Optional warning message when upload succeeded but normalization
+    """
+    recording: Recording
+    normalization_succeeded: bool
+    diarization_succeeded: bool
     warning: str | None = None
 
 
@@ -59,5 +74,72 @@ def upload_and_normalize_recording(*, uploaded_file: UploadedFile) -> UploadAndN
     return UploadAndNormalizeResult(
         recording=normalized_recording,
         normalization_succeeded=True,
+        warning=None,
+    )
+
+def upload_normalize_and_diarize_recording(*, uploaded_file: UploadedFile) -> UploadNormalizedAndDiarizedResult:
+    """
+    Upload a recording, normalize its audio, and run full-recording diarization.
+
+    1. Upload recording -> store file -> create DN row
+    2. Normalize recording
+    3. Run diarization and persist SpeakerSegment rows
+    :param uploaded_file: Django uploaded file object.
+    :return: UploadNormalizedAndDiarizedResult: Structured result containg the recording and stage outcomes.
+    """
+    recording = ingest_uploaded_recording(uploaded_file=uploaded_file)
+    try:
+        recording = normalize_audio(recording=recording)
+    except Exception as exc:
+        warning = "Upload succeeded but normalization failed."
+        logger.warning(
+            "pipeline_normalization_failed_after_upload",
+            extra={
+                "recording_id": str(recording.id),
+                "status": recording.status,
+                "warning": warning,
+                "error": str(exc),
+            },
+        )
+        return UploadNormalizedAndDiarizedResult(
+            recording=recording,
+            normalization_succeeded=False,
+            diarization_succeeded=False,
+            warning=warning,
+        )
+    try:
+        run_diarization(recording=recording)
+    except Exception as exc:
+        recording.refresh_from_db()
+        warning = "Upload and normalization succeeded but diarization failed."
+        logger.warning(
+            "pipeline_diarization_failed_after_normalization",
+            extra={
+                "recording_id": str(recording.id),
+                "status": recording.status,
+                "warning": warning,
+                "error": str(exc),
+            },
+        )
+        return UploadNormalizedAndDiarizedResult(
+            recording=recording,
+            normalization_succeeded=True,
+            diarization_succeeded=False,
+            warning=warning,
+        )
+    recording.refresh_from_db()
+    logger.info(
+        "pipeline_upload_normalize_and_diarize_completed",
+        extra={
+            "recording_id": str(recording.id),
+            "status": recording.status,
+            "normalization_succeeded": True,
+            "diarization_succeeded": True,
+        },
+    )
+    return UploadNormalizedAndDiarizedResult(
+        recording=recording,
+        normalization_succeeded=True,
+        diarization_succeeded=True,
         warning=None,
     )

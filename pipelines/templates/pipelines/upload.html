@@ -49,7 +49,7 @@ form.addEventListener("submit", async (event) => {
 
     responseBox.textContent = "Uploading...";
 
-    const response = await fetch("/pipelines/upload-and-normalize/", {
+    const response = await fetch("/pipelines/upload-normalize-diarize/", {
         method: "POST",
         body: formData
     });
