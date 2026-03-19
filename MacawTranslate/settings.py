@@ -126,3 +126,68 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+LOG_LEVEL = env('LOG_LEVEL', default='INFO')
+LOGS_DIR = BASE_DIR / 'logs'
+APPS_LOGS_DIR = LOGS_DIR / 'apps'
+LOGGING = {
+    'version': 1,
+    "disable_existing_loggers": False,
+    'formatters': {
+        'verbose': {
+            '()': 'MacawTranslate.logging_utils.ExtraFieldsFormatter',
+            'format': (
+                "%(asctime)s %(levelname)s "
+                "[%(name)s] [%(module)s:%(lineno)d] "
+                "%(message)s"
+            )
+        },
+        "simple": {
+            '()': 'MacawTranslate.logging_utils.ExtraFieldsFormatter',
+            "format": "%(levelname)s [%(name)s] %(message)s"
+        },
+    },
+    'handlers': {
+        'console': {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    'loggers': {
+        "recordings": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "speakers": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "pipelines": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "pyannote": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "pyannote.audio": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "torch": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    }
+}
