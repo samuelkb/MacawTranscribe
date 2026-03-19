@@ -679,6 +679,8 @@ dependencies = [
     { name = "django" },
     { name = "django-environ" },
     { name = "pyannote-audio" },
+    { name = "torch" },
+    { name = "torchaudio" },
 ]
 
 [package.metadata]
@@ -686,6 +688,8 @@ requires-dist = [
     { name = "django", specifier = ">=6.0.3" },
     { name = "django-environ", specifier = ">=0.13.0" },
     { name = "pyannote-audio", specifier = ">=4.0.4" },
+    { name = "torch", specifier = ">=2.10.0" },
+    { name = "torchaudio", specifier = ">=2.10.0" },
 ]
 
 [[package]]

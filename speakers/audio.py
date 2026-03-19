@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, runtime_checkable, Protocol, Any
 
+import torch
 from django.conf import settings
 from pyannote.audio.pipelines.utils.hook import ProgressHook, Hooks, TimingHook, ArtifactHook
 
@@ -178,6 +179,7 @@ def run_pyannote_diarization(*, audio_path: Path) -> list[DiarizationSegment]:
     :raises FileNotFoundError: If ``audio_path`` does not exist.
     :raises DiarizationError: If the pipeline cannot be loaded or execution fails.
     """
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     raw_path: str = str(audio_path)
     if not raw_path or not raw_path.strip() or raw_path == ".":
         raise ValueError("audio_path must not be empty")
@@ -203,6 +205,14 @@ def run_pyannote_diarization(*, audio_path: Path) -> list[DiarizationSegment]:
         pipeline = Pipeline.from_pretrained(
             model_name,
             token=token,
+        )
+        pipeline.to(device)
+        logger.info(
+            "torch_device_debug",
+            extra={
+                "mps_available": torch.backends.mps.is_available(),
+                "mps_built": torch.backends.mps.is_built(),
+            },
         )
     except Exception as exc:
         raise DiarizationError(f"failed to load diarization pipeline: {model_name}") from exc
