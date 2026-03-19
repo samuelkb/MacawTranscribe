@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'recordings',
-    'speakers'
+    'speakers',
+    'pipelines'
 ]
 
 MIDDLEWARE = [
