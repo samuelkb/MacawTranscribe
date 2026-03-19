@@ -1,8 +1,14 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from recordings.models import Recording, RecordingStatus
+from speakers.audio import DiarizationSegment, DiarizationError
 from speakers.models import SpeakerSegment, SilenceSegment, SpeakerLabel
+from speakers.services import run_diarization
 
 
 class SpeakerModelsTests(TestCase):
@@ -146,3 +152,140 @@ class SpeakerModelsTests(TestCase):
 
         self.assertIn("SPEAKER_00", str(label))
         self.assertIn("Interviewer", str(label))
+
+
+class RunDiarizationTests(TestCase):
+    def test_run_diarization_persists_segments_and_updates_recording_status(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            normalized_path = Path(tmp_dir) / "normalized.wav"
+            normalized_path.write_bytes(b"fake-normalized-audio")
+
+            recording = Recording.objects.create(
+                original_file_name="interview.m4a",
+                original_file_path=str(Path(tmp_dir) / "original.m4a"),
+                normalized_file_path=str(normalized_path),
+                duration_milliseconds=120_000,
+                status=RecordingStatus.NORMALIZED,
+            )
+
+            fake_segments = [
+                DiarizationSegment(
+                    speaker_id="SPEAKER_00",
+                    start_time=0,
+                    end_time=5_000,
+                ),
+                DiarizationSegment(
+                    speaker_id="SPEAKER_01",
+                    start_time=5_000,
+                    end_time=10_000,
+                ),
+            ]
+
+            with patch(
+                    "speakers.services.run_pyannote_diarization",
+                    return_value=fake_segments,
+            ):
+                with patch(
+                        "speakers.services.get_diarization_model_name",
+                        return_value="pyannote/speaker-diarization-community-1",
+                ):
+                    created = run_diarization(recording=recording)
+
+            self.assertEqual(len(created), 2)
+            self.assertEqual(SpeakerSegment.objects.count(), 2)
+
+            recording.refresh_from_db()
+            self.assertEqual(recording.status, RecordingStatus.DIARIZED)
+
+            first = SpeakerSegment.objects.order_by("start_time").first()
+            assert first is not None
+            self.assertEqual(first.speaker_id, "SPEAKER_00")
+            self.assertEqual(first.start_time, 0)
+            self.assertEqual(first.end_time, 5_000)
+            self.assertEqual(
+                first.model_used,
+                "pyannote/speaker-diarization-community-1",
+            )
+
+    def test_run_diarization_replaces_existing_segments(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            normalized_path = Path(tmp_dir) / "normalized.wav"
+            normalized_path.write_bytes(b"fake-normalized-audio")
+
+            recording = Recording.objects.create(
+                original_file_name="interview.m4a",
+                original_file_path=str(Path(tmp_dir) / "original.m4a"),
+                normalized_file_path=str(normalized_path),
+                duration_milliseconds=120_000,
+                status=RecordingStatus.NORMALIZED,
+            )
+
+            SpeakerSegment.objects.create(
+                recording=recording,
+                speaker_id="OLD_SPEAKER",
+                start_time=0,
+                end_time=1_000,
+                model_used="old-model",
+            )
+
+            fake_segments = [
+                DiarizationSegment(
+                    speaker_id="SPEAKER_00",
+                    start_time=2_000,
+                    end_time=6_000,
+                ),
+            ]
+
+            with patch(
+                    "speakers.services.run_pyannote_diarization",
+                    return_value=fake_segments,
+            ):
+                with patch(
+                        "speakers.services.get_diarization_model_name",
+                        return_value="pyannote/speaker-diarization-community-1",
+                ):
+                    created = run_diarization(recording=recording)
+
+            self.assertEqual(SpeakerSegment.objects.count(), 1)
+            segment = SpeakerSegment.objects.get()
+            self.assertEqual(segment.speaker_id, "SPEAKER_00")
+            self.assertEqual(segment.start_time, 2_000)
+            self.assertEqual(segment.end_time, 6_000)
+
+    def test_run_diarization_rejects_missing_normalized_file_path(self) -> None:
+        recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/x/original.m4a",
+            duration_milliseconds=120_000,
+            status=RecordingStatus.UPLOADED,
+        )
+
+        with self.assertRaisesMessage(
+                ValueError,
+                "recording.normalized_file_path must not be empty",
+        ):
+            run_diarization(recording=recording)
+
+    def test_run_diarization_propagates_backend_errors_without_modifying_status(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            normalized_path = Path(tmp_dir) / "normalized.wav"
+            normalized_path.write_bytes(b"fake-normalized-audio")
+
+            recording = Recording.objects.create(
+                original_file_name="interview.m4a",
+                original_file_path=str(Path(tmp_dir) / "original.m4a"),
+                normalized_file_path=str(normalized_path),
+                duration_milliseconds=120_000,
+                status=RecordingStatus.NORMALIZED,
+            )
+
+            with patch(
+                    "speakers.services.run_pyannote_diarization",
+                    side_effect=DiarizationError("boom"),
+            ):
+                with self.assertRaisesMessage(DiarizationError, "boom"):
+                    run_diarization(recording=recording)
+
+            recording.refresh_from_db()
+            self.assertEqual(recording.status, RecordingStatus.NORMALIZED)
+            self.assertEqual(SpeakerSegment.objects.count(), 0)

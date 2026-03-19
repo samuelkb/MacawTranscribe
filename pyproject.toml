@@ -5,4 +5,5 @@ description = "Add your description here"
 requires-python = ">=3.14"
 dependencies = [
     "django>=6.0.3",
+    "pyannote-audio>=4.0.4",
 ]
