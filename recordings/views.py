@@ -4,18 +4,11 @@ from typing import Final
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from django.shortcuts import render
 
-from recordings.services import upload_and_normalize_recording
+from recordings.services import ingest_uploaded_recording
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
-
-def upload_recording_ui(request):
-    """
-    Simple developer UI to test recording uploads.
-    """
-    return render(request, "recordings/upload.html")
 
 @csrf_exempt
 @require_POST
@@ -34,7 +27,7 @@ def upload_recording(request: HttpRequest) -> JsonResponse:
         )
 
     try:
-        result = upload_and_normalize_recording(uploaded_file=uploaded_file)
+        recording = ingest_uploaded_recording(uploaded_file=uploaded_file)
     except ValueError as exc:
         logger.warning(
             "recording_upload_rejected",
@@ -59,16 +52,14 @@ def upload_recording(request: HttpRequest) -> JsonResponse:
             }, status=500,
         )
 
-    recording = result.recording
-    payload = {
+    return JsonResponse(
+        {
             "recording_id": str(recording.id),
             "original_file_name": recording.original_file_name,
             "duration_milliseconds": recording.duration_milliseconds,
             "status": recording.status,
             "original_file_path": recording.original_file_path,
             "normalized_file_path": recording.normalized_file_path,
-            "normalization_succeeded": result.normalization_succeeded,
-    }
-    if result.warning:
-        payload["warning"] = result.warning
-    return JsonResponse(payload, status=201)
+        },
+        status=201,
+    )

@@ -11,8 +11,7 @@ from django.urls import reverse
 
 from recordings.files import build_recording_directory, build_original_file_path, save_uploaded_file_atomic
 from recordings.models import Chunk, Recording, RecordingStatus
-from recordings.services import create_recording, normalize_audio, ingest_uploaded_recording, \
-    upload_and_normalize_recording
+from recordings.services import create_recording, normalize_audio, ingest_uploaded_recording
 from recordings.audio import AudioNormalizationError, AudioProbeError, _run_ffmpeg_normalization, probe_audio_duration_milliseconds
 
 
@@ -460,11 +459,10 @@ class UploadRecordingViewTests(TestCase):
                         "recordings.services.probe_audio_duration_milliseconds",
                         return_value=125_000,
                 ):
-                    with patch("recordings.services._run_ffmpeg_normalization"):
-                        response = self.client.post(
-                            reverse("recordings:upload_recording"),
-                            {"file": uploaded},
-                        )
+                    response = self.client.post(
+                        reverse("recordings:upload_recording"),
+                        {"file": uploaded},
+                    )
 
         self.assertEqual(response.status_code, 201)
 
@@ -472,42 +470,8 @@ class UploadRecordingViewTests(TestCase):
         self.assertIn("recording_id", payload)
         self.assertEqual(payload["original_file_name"], "interview.m4a")
         self.assertEqual(payload["duration_milliseconds"], 125_000)
-        self.assertEqual(payload["status"], RecordingStatus.NORMALIZED)
-        self.assertTrue(payload["normalization_succeeded"])
-        self.assertTrue(payload["original_file_path"].endswith("/original.m4a"))
-        self.assertTrue(payload["normalized_file_path"].endswith("normalized.wav"))
-
-    def test_upload_recording_returns_201_with_warning_when_normalization_fails(self) -> None:
-        with TemporaryDirectory() as tmp_dir:
-            uploaded = SimpleUploadedFile(
-                "interview.m4a",
-                b"fake audio bytes",
-                content_type="audio/mp4",
-            )
-
-            with override_settings(RECORDINGS_BASE_DIR=tmp_dir):
-                with patch(
-                        "recordings.services.probe_audio_duration_milliseconds",
-                        return_value=125_000,
-                ):
-                    with patch(
-                            "recordings.services.normalize_audio",
-                            side_effect=RuntimeError("normalization boom"),
-                    ):
-                        response = self.client.post(
-                            reverse("recordings:upload_recording"),
-                            {"file": uploaded},
-                        )
-
-        self.assertEqual(response.status_code, 201)
-
-        payload = response.json()
         self.assertEqual(payload["status"], RecordingStatus.UPLOADED)
-        self.assertFalse(payload["normalization_succeeded"])
-        self.assertEqual(
-            payload["warning"],
-            "Upload succeeded but normalization failed.",
-        )
+        self.assertTrue(payload["original_file_path"].endswith("/original.m4a"))
         self.assertIsNone(payload["normalized_file_path"])
 
     def test_upload_recording_returns_400_when_file_is_missing(self) -> None:
@@ -524,7 +488,7 @@ class UploadRecordingViewTests(TestCase):
         )
 
         with patch(
-                "recordings.views.upload_and_normalize_recording",
+                "recordings.views.ingest_uploaded_recording",
                 side_effect=RuntimeError("boom"),
         ):
             response = self.client.post(
@@ -534,100 +498,3 @@ class UploadRecordingViewTests(TestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["error"], "uploaded_failed")
-
-    def test_ingest_uploaded_recording_cleans_up_saved_file_if_probe_fails(self) -> None:
-        with TemporaryDirectory() as tmp_dir:
-            uploaded = SimpleUploadedFile(
-                "interview.m4a",
-                b"fake audio bytes",
-                content_type="audio/mp4",
-            )
-
-            with override_settings(RECORDINGS_BASE_DIR=tmp_dir):
-                with patch(
-                        "recordings.services.probe_audio_duration_milliseconds",
-                        side_effect=RuntimeError("probe failed"),
-                ):
-                    with self.assertRaises(RuntimeError):
-                        ingest_uploaded_recording(uploaded_file=uploaded)
-
-            recordings_root = Path(tmp_dir)
-            all_files = list(recordings_root.rglob("*"))
-            self.assertEqual(all_files, [])
-
-
-class UploadAndNormalizeRecordingTests(TestCase):
-    def test_upload_and_normalize_recording_returns_normalized_recording_on_success(self) -> None:
-        with TemporaryDirectory() as tmp_dir:
-            uploaded = SimpleUploadedFile(
-                "interview.m4a",
-                b"fake audio bytes",
-                content_type="audio/mp4",
-            )
-
-            with override_settings(RECORDINGS_BASE_DIR=tmp_dir):
-                with patch(
-                        "recordings.services.probe_audio_duration_milliseconds",
-                        return_value=125_000,
-                ):
-                    with patch("recordings.services._run_ffmpeg_normalization"):
-                        result = upload_and_normalize_recording(uploaded_file=uploaded)
-
-            self.assertTrue(result.normalization_succeeded)
-            self.assertIsNone(result.warning)
-            self.assertEqual(result.recording.status, RecordingStatus.NORMALIZED)
-            self.assertIsNotNone(result.recording.normalized_file_path)
-
-            result.recording.refresh_from_db()
-            self.assertEqual(result.recording.status, RecordingStatus.NORMALIZED)
-            self.assertIsNotNone(result.recording.normalized_file_path)
-
-    def test_upload_and_normalize_recording_returns_partial_success_when_normalization_fails(self) -> None:
-        with TemporaryDirectory() as tmp_dir:
-            uploaded = SimpleUploadedFile(
-                "interview.m4a",
-                b"fake audio bytes",
-                content_type="audio/mp4",
-            )
-
-            with override_settings(RECORDINGS_BASE_DIR=tmp_dir):
-                with patch(
-                        "recordings.services.probe_audio_duration_milliseconds",
-                        return_value=125_000,
-                ):
-                    with patch(
-                            "recordings.services.normalize_audio",
-                            side_effect=RuntimeError("normalization boom"),
-                    ):
-                        result = upload_and_normalize_recording(uploaded_file=uploaded)
-
-            self.assertFalse(result.normalization_succeeded)
-            self.assertEqual(
-                result.warning,
-                "Upload succeeded but normalization failed.",
-            )
-
-            self.assertEqual(Recording.objects.count(), 1)
-
-            recording = result.recording
-            recording.refresh_from_db()
-
-            self.assertEqual(recording.status, RecordingStatus.UPLOADED)
-            self.assertIsNone(recording.normalized_file_path)
-
-            original_path = Path(recording.original_file_path)
-            self.assertTrue(original_path.exists())
-
-    def test_upload_and_normalize_recording_propagates_ingestion_failures(self) -> None:
-        uploaded = SimpleUploadedFile(
-            "interview.m4a",
-            b"fake audio bytes",
-            content_type="audio/mp4",
-        )
-
-        with patch(
-                "recordings.services.ingest_uploaded_recording",
-                side_effect=RuntimeError("ingestion boom"),
-        ):
-            with self.assertRaisesMessage(RuntimeError, "ingestion boom"):
-                upload_and_normalize_recording(uploaded_file=uploaded)
