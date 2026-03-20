@@ -7,6 +7,7 @@ from typing import Final, runtime_checkable, Protocol, Any
 import torch
 from django.conf import settings
 from pyannote.audio.pipelines.utils.hook import ProgressHook, Hooks, TimingHook, ArtifactHook
+from sympy.physics.quantum.identitysearch import random_identity_search
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -123,6 +124,19 @@ class DjangoLoggingHook:
                         ),
                     },
                 )
+
+
+class VadError(RuntimeError):
+    """Raised when voice activity detection fails."""
+
+
+@dataclass(frozen=True)
+class VadSpeechSegment:
+    """
+    One speech interval returned by the VAD backend
+    """
+    start_time: int
+    end_time: int
 
 
 def get_diarization_model_name()-> str:
@@ -249,6 +263,89 @@ def run_pyannote_diarization(*, audio_path: Path) -> list[DiarizationSegment]:
             "audio_path": str(audio_path),
             "model_used": model_name,
             "segments_count": len(segments),
+        }
+    )
+    return segments
+
+def get_vad_model_name() -> str:
+    """
+    Resolves the configured VAD model name.
+    :return: The configured VAD model identifier.
+    """
+    return getattr(settings, "VAD_MODEL_NAME", "silero_vad")
+
+def run_vad_backend(*, audio_path: Path) -> list[VadSpeechSegment]:
+    """
+    Run VAD on a normalized audio file and return speech segments.
+    :param audio_path: Path to the normalized audio file.
+    :return: Speech intervals in integer milliseconds
+    :raises ValueError: If ``audio_path`` is empty.
+    :raises FileNotFoundError: If the audio file does not exist.
+    :raises VadError: If the backend is unavailable or execution fails.
+    """
+    raw_path: str = str(audio_path)
+    if not raw_path or not raw_path.strip() or raw_path == ".":
+        raise ValueError("audio_path must not be empty")
+    if not audio_path.exists():
+        raise FileNotFoundError(f"normalized audio file was not found: {audio_path}")
+    model_name: str = get_vad_model_name()
+    logger.info(
+        "vad_backend_started",
+        extra={
+            "audio_path": str(audio_path),
+            "model_used": model_name,
+        }
+    )
+
+    try:
+        import torchaudio
+    except Exception as exc: # pragma: no cover
+        raise VadError("torchaudio is not available for VAD") from exc
+
+    try:
+        model, utils = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            force_reload=False,
+        )
+        get_speech_timestamps = utils[0]
+    except Exception as exc:
+        raise VadError("failed to load silero VAD backend") from exc
+    try:
+        waveform, sample_rate = torchaudio.load(str(audio_path))
+    except Exception as exc:
+        raise VadError("failed to load audio for VAD") from exc
+    if waveform.ndim == 2 and waveform.shape[0] > 1:
+        waveform = waveform[:1, :]
+    if waveform.ndim == 2:
+        waveform = waveform.squeeze(0)
+
+    try:
+        speech_timestamps = get_speech_timestamps(
+            waveform=waveform,
+            model=model,
+            sample_rate=sample_rate,
+        )
+    except Exception as exc:
+        raise VadError("VAD backend execution failed") from exc
+
+    segments: list[VadSpeechSegment] = []
+    for item in speech_timestamps:
+        start_time, end_time = int(item["start"] * 1000), int(item["end"] * 1000)
+        if end_time <= start_time:
+            continue
+        segments.append(
+            VadSpeechSegment(
+                start_time=start_time,
+                end_time=end_time,
+            )
+        )
+    logger.info(
+        "vad_backend_completed",
+        extra={
+            "audio_path": str(audio_path),
+            "model_used": model_name,
+            "speech_segments_count": len(segments),
         }
     )
     return segments

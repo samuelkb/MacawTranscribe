@@ -6,9 +6,9 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from recordings.models import Recording, RecordingStatus
-from speakers.audio import DiarizationSegment, DiarizationError
+from speakers.audio import DiarizationSegment, DiarizationError, VadSpeechSegment
 from speakers.models import SpeakerSegment, SilenceSegment, SpeakerLabel
-from speakers.services import run_diarization
+from speakers.services import run_diarization, derive_silence_intervals, run_vad
 
 
 class SpeakerModelsTests(TestCase):
@@ -289,3 +289,188 @@ class RunDiarizationTests(TestCase):
             recording.refresh_from_db()
             self.assertEqual(recording.status, RecordingStatus.NORMALIZED)
             self.assertEqual(SpeakerSegment.objects.count(), 0)
+
+
+class DeriveSilenceIntervalsTest(TestCase):
+    def test_returns_full_duration_as_silence_when_no_speech_segments(self) -> None:
+        intervals = derive_silence_intervals(
+            speech_segments=[],
+            duration_milliseconds=10_000,
+        )
+
+        self.assertEqual(len(intervals), 1)
+        self.assertEqual(intervals[0].start_time, 0)
+        self.assertEqual(intervals[0].end_time, 10_000)
+
+    def test_derives_gaps_before_between_and_after_speech(self) -> None:
+        intervals = derive_silence_intervals(
+            speech_segments=[
+                VadSpeechSegment(start_time=1_000, end_time=2_000),
+                VadSpeechSegment(start_time=4_000, end_time=5_000),
+            ],
+            duration_milliseconds=7_000,
+        )
+
+        self.assertEqual(
+            [(i.start_time, i.end_time) for i in intervals],
+            [
+                (0, 1_000),
+                (2_000, 4_000),
+                (5_000, 7_000),
+            ],
+        )
+
+    def test_handles_unsorted_speech_segments(self) -> None:
+        intervals = derive_silence_intervals(
+            speech_segments=[
+                VadSpeechSegment(start_time=4_000, end_time=5_000),
+                VadSpeechSegment(start_time=1_000, end_time=2_000),
+            ],
+            duration_milliseconds=7_000,
+        )
+
+        self.assertEqual(
+            [(i.start_time, i.end_time) for i in intervals],
+            [
+                (0, 1_000),
+                (2_000, 4_000),
+                (5_000, 7_000),
+            ],
+        )
+
+    def test_rejects_non_positive_duration(self) -> None:
+        with self.assertRaisesMessage(ValueError, "duration_milliseconds must be greater than 0"):
+            derive_silence_intervals(
+                speech_segments=[],
+                duration_milliseconds=0,
+            )
+
+
+class RunVadTest(TestCase):
+    def test_run_vad_persists_silence_segments(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            normalized_path = Path(tmp_dir) / "normalized.wav"
+            normalized_path.write_bytes(b"fake-normalized-audio")
+
+            recording = Recording.objects.create(
+                original_file_name="interview.m4a",
+                original_file_path=str(Path(tmp_dir) / "original.m4a"),
+                normalized_file_path=str(normalized_path),
+                duration_milliseconds=10_000,
+                status=RecordingStatus.DIARIZED,
+            )
+
+            fake_speech_segments = [
+                VadSpeechSegment(start_time=1_000, end_time=2_000),
+                VadSpeechSegment(start_time=4_000, end_time=5_000),
+            ]
+
+            with patch(
+                    "speakers.services.run_vad_backend",
+                    return_value=fake_speech_segments,
+            ):
+                with patch(
+                        "speakers.services.get_vad_model_name",
+                        return_value="silero_vad",
+                ):
+                    created = run_vad(recording=recording)
+
+            self.assertEqual(len(created), 3)
+            self.assertEqual(SilenceSegment.objects.count(), 3)
+
+            intervals = list(
+                SilenceSegment.objects.order_by("start_time").values_list(
+                    "start_time",
+                    "end_time",
+                    "model_used",
+                )
+            )
+            self.assertEqual(
+                intervals,
+                [
+                    (0, 1_000, "silero_vad"),
+                    (2_000, 4_000, "silero_vad"),
+                    (5_000, 10_000, "silero_vad"),
+                ],
+            )
+
+    def test_run_vad_replaces_existing_silence_segments(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            normalized_path = Path(tmp_dir) / "normalized.wav"
+            normalized_path.write_bytes(b"fake-normalized-audio")
+
+            recording = Recording.objects.create(
+                original_file_name="interview.m4a",
+                original_file_path=str(Path(tmp_dir) / "original.m4a"),
+                normalized_file_path=str(normalized_path),
+                duration_milliseconds=10_000,
+                status=RecordingStatus.DIARIZED,
+            )
+
+            SilenceSegment.objects.create(
+                recording=recording,
+                start_time=0,
+                end_time=500,
+                model_used="old_vad",
+            )
+
+            with patch(
+                    "speakers.services.run_vad_backend",
+                    return_value=[VadSpeechSegment(start_time=2_000, end_time=3_000)],
+            ):
+                with patch(
+                        "speakers.services.get_vad_model_name",
+                        return_value="silero_vad",
+                ):
+                    run_vad(recording=recording)
+
+            intervals = list(
+                SilenceSegment.objects.order_by("start_time").values_list(
+                    "start_time",
+                    "end_time",
+                )
+            )
+            self.assertEqual(intervals, [(0, 2_000), (3_000, 10_000)])
+
+    def test_run_vad_rejects_missing_normalized_file_path(self) -> None:
+        recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/x/original.m4a",
+            duration_milliseconds=10_000,
+            status=RecordingStatus.UPLOADED,
+        )
+
+        with self.assertRaisesMessage(
+                ValueError,
+                "recording.normalized_file_path must not be empty",
+        ):
+            run_vad(recording=recording)
+
+    def test_run_vad_logs_start_and_completion(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            normalized_path = Path(tmp_dir) / "normalized.wav"
+            normalized_path.write_bytes(b"fake-normalized-audio")
+
+            recording = Recording.objects.create(
+                original_file_name="interview.m4a",
+                original_file_path=str(Path(tmp_dir) / "original.m4a"),
+                normalized_file_path=str(normalized_path),
+                duration_milliseconds=10_000,
+                status=RecordingStatus.DIARIZED,
+            )
+
+            with patch(
+                    "speakers.services.run_vad_backend",
+                    return_value=[VadSpeechSegment(start_time=2_000, end_time=3_000)],
+            ):
+                with patch(
+                        "speakers.services.get_vad_model_name",
+                        return_value="silero_vad",
+                ):
+                    with self.assertLogs("speakers.services", level="INFO") as captured:
+                        run_vad(recording=recording)
+
+            output = "\n".join(captured.output)
+            self.assertIn("recording_vad_started", output)
+            self.assertIn("recording_vad_completed", output)
+
