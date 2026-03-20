@@ -322,11 +322,23 @@ def run_vad_backend(*, audio_path: Path) -> list[VadSpeechSegment]:
 
     try:
         speech_timestamps = get_speech_timestamps(
-            waveform=waveform,
-            model=model,
-            sample_rate=sample_rate,
+            waveform,
+            model,
+            sampling_rate=sample_rate,
+            return_seconds=True,
         )
     except Exception as exc:
+        logger.exception(
+            "vad_backend_execution_failed",
+            extra={
+                "audio_path": str(audio_path),
+                "model_used": model_name,
+                "sample_rate": sample_rate,
+                "waveform_shape": tuple(waveform.shape),
+                "exc_type": type(exc).__name__,
+                "exc_value": str(exc),
+            }
+        )
         raise VadError("VAD backend execution failed") from exc
 
     segments: list[VadSpeechSegment] = []
