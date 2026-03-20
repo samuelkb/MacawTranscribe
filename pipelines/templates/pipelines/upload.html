@@ -560,7 +560,7 @@
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
-            const { statusCode, payload } = await postMultipart("/pipelines/upload-normalize-diarize-vad/", formData);
+            const { statusCode, payload } = await postMultipart("/pipelines/upload-normalize-diarize-vad-chunk/", formData);
 
             setResponse(payload);
             if (statusCode === 201) {
