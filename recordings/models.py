@@ -12,6 +12,7 @@ class RecordingStatus(models.TextChoices):
     UPLOADED = "uploaded", "Uploaded"
     NORMALIZED = "normalized", "Normalized"
     DIARIZED = "diarized", "Diarized"
+    CHUNKED = "chunked", "Chunked"
     TRANSCRIBING = "transcribing", "Transcribing"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"

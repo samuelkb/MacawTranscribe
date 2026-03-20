@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,8 +11,8 @@ from django.test import TestCase, SimpleTestCase, override_settings
 from django.urls import reverse
 
 from recordings.files import build_recording_directory, build_original_file_path, save_uploaded_file_atomic
-from recordings.models import Chunk, Recording, RecordingStatus
-from recordings.services import create_recording, normalize_audio, ingest_uploaded_recording
+from recordings.models import Chunk, Recording, RecordingStatus, ChunkStatus
+from recordings.services import create_recording, normalize_audio, ingest_uploaded_recording, create_chunks
 from recordings.audio import AudioNormalizationError, AudioProbeError, _run_ffmpeg_normalization, probe_audio_duration_milliseconds
 
 
@@ -498,3 +499,208 @@ class UploadRecordingViewTests(TestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["error"], "uploaded_failed")
+
+
+class CreateChunksTests(TestCase):
+    def setUp(self) -> None:
+        self.recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=80_000,
+            status=RecordingStatus.DIARIZED,
+        )
+
+    def test_create_chunks_generates_fixed_chunks_with_overlap(self) -> None:
+        chunks = create_chunks(
+            recording=self.recording,
+            chunk_duration_milliseconds=30_000,
+            overlap_milliseconds=5_000,
+        )
+
+        self.assertEqual(len(chunks), 3)
+
+        persisted = list(
+            Chunk.objects.filter(recording=self.recording)
+            .order_by("chunk_index")
+            .values_list("chunk_index", "start_time", "end_time", "status")
+        )
+
+        self.assertEqual(
+            persisted,
+            [
+                (0, 0, 30_000, ChunkStatus.PENDING),
+                (1, 25_000, 55_000, ChunkStatus.PENDING),
+                (2, 50_000, 80_000, ChunkStatus.PENDING),
+            ],
+        )
+
+        self.recording.refresh_from_db()
+        self.assertEqual(self.recording.status, RecordingStatus.CHUNKED)
+
+    def test_create_chunks_creates_single_chunk_for_short_recording(self) -> None:
+        self.recording.duration_milliseconds = 10_000
+        self.recording.save(update_fields=["duration_milliseconds"])
+
+        chunks = create_chunks(
+            recording=self.recording,
+            chunk_duration_milliseconds=30_000,
+            overlap_milliseconds=5_000,
+        )
+
+        self.assertEqual(len(chunks), 1)
+
+        chunk = Chunk.objects.get(recording=self.recording)
+        self.assertEqual(chunk.chunk_index, 0)
+        self.assertEqual(chunk.start_time, 0)
+        self.assertEqual(chunk.end_time, 10_000)
+
+    def test_create_chunks_replaces_existing_chunks(self) -> None:
+        Chunk.objects.create(
+            recording=self.recording,
+            chunk_index=0,
+            start_time=0,
+            end_time=10_000,
+            status=ChunkStatus.COMPLETED,
+        )
+
+        create_chunks(
+            recording=self.recording,
+            chunk_duration_milliseconds=30_000,
+            overlap_milliseconds=5_000,
+        )
+
+        persisted = list(
+            Chunk.objects.filter(recording=self.recording)
+            .order_by("chunk_index")
+            .values_list("chunk_index", "start_time", "end_time")
+        )
+
+        self.assertEqual(
+            persisted,
+            [
+                (0, 0, 30_000),
+                (1, 25_000, 55_000),
+                (2, 50_000, 80_000),
+            ],
+        )
+
+    def test_create_chunks_rejects_non_positive_duration(self) -> None:
+        self.recording.duration_milliseconds = 0
+        self.recording.save(update_fields=["duration_milliseconds"])
+
+        with self.assertRaisesMessage(
+                ValueError,
+                "recording.duration_milliseconds must be greater than 0",
+        ):
+            create_chunks(recording=self.recording)
+
+    def test_create_chunks_rejects_non_positive_chunk_duration(self) -> None:
+        with self.assertRaisesMessage(
+                ValueError,
+                "chunk_duration_milliseconds must be greater than 0",
+        ):
+            create_chunks(
+                recording=self.recording,
+                chunk_duration_milliseconds=0,
+            )
+
+    def test_create_chunks_rejects_negative_overlap(self) -> None:
+        with self.assertRaisesMessage(
+                ValueError,
+                "overlap_milliseconds must not be negative",
+        ):
+            create_chunks(
+                recording=self.recording,
+                overlap_milliseconds=-1,
+            )
+
+    def test_create_chunks_rejects_overlap_greater_than_or_equal_to_chunk_duration(self) -> None:
+        with self.assertRaisesMessage(
+                ValueError,
+                "overlap_milliseconds must be smaller than chunk_duration_milliseconds",
+        ):
+            create_chunks(
+                recording=self.recording,
+                chunk_duration_milliseconds=30_000,
+                overlap_milliseconds=30_000,
+            )
+
+    def test_create_chunks_logs_start_and_completion(self) -> None:
+        with self.assertLogs("recordings.services", level="INFO") as captured:
+            create_chunks(
+                recording=self.recording,
+                chunk_duration_milliseconds=30_000,
+                overlap_milliseconds=5_000,
+            )
+
+        output = "\n".join(captured.output)
+        self.assertIn("chunk_creation_started", output)
+        self.assertIn("chunk_creation_completed", output)
+
+
+class CreateChunksViewTest(TestCase):
+    def setUp(self) -> None:
+        self.recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=80_000,
+            status=RecordingStatus.DIARIZED,
+        )
+
+    def test_returns_201_and_payload_on_success(self) -> None:
+        with patch("recordings.views.create_chunks", return_value=[object(), object(), object()]):
+            response = self.client.post(
+                reverse("recordings:create_chunks", args=[self.recording.id]),
+                data=json.dumps({"chunk_duration_milliseconds": 30000, "overlap_milliseconds": 5000}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["recording_id"], str(self.recording.id))
+        self.assertEqual(payload["chunk_count"], 3)
+        self.assertEqual(payload["chunk_duration_milliseconds"], 30000)
+        self.assertEqual(payload["overlap_milliseconds"], 5000)
+
+    def test_returns_404_when_recording_missing(self) -> None:
+        response = self.client.post(
+            reverse("recordings:create_chunks", args=[uuid4()]),
+            data="{}",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_returns_400_on_invalid_json(self) -> None:
+        response = self.client.post(
+            reverse("recordings:create_chunks", args=[self.recording.id]),
+            data="{bad json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_returns_400_when_service_rejects_request(self) -> None:
+        with patch(
+                "recordings.views.create_chunks",
+                side_effect=ValueError("recording.normalized_file_path must not be empty"),
+        ):
+            response = self.client.post(
+                reverse("recordings:create_chunks", args=[self.recording.id]),
+                data="{}",
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_returns_500_on_unexpected_failure(self) -> None:
+        with patch("recordings.views.create_chunks", side_effect=RuntimeError("boom")):
+            response = self.client.post(
+                reverse("recordings:create_chunks", args=[self.recording.id]),
+                data="{}",
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 500)

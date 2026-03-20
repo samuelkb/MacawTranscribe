@@ -230,7 +230,7 @@
 <div class="page">
     <div class="header">
         <h1>Pipeline Dashboard</h1>
-        <p>Run and inspect the first four stages of the pipeline step by step: upload, normalize, diarize, and VAD.</p>
+        <p>Run and inspect the first five stages of the pipeline step by step: upload, normalize, diarize, VAD and chunking.</p>
     </div>
 
     <div class="layout">
@@ -243,7 +243,14 @@
                 <input id="file-input" type="file" name="file" />
 
                 <label for="recording-id-input">Recording ID</label>
-                <input id="recording-id-input" type="text" placeholder="Filled automatically after upload or pipeline run" />
+                <input
+                    id="recording-id-input"
+                    type="text"
+                    placeholder="Auto-filled after upload, or paste an existing recording UUID here"
+                />
+                <div class="muted-small">
+                    You can paste an existing recording id here to run isolated steps like chunk creation.
+                </div>
 
                 <div class="kv">
                     <div class="key">Current file</div>
@@ -294,20 +301,36 @@
                         <button id="btn-step-4" class="warn">Run Step 4</button>
                     </div>
                 </div>
+
+                <div class="card">
+                    <div id="status-step-5" class="status">Idle</div>
+                    <h2>Step 5 — Run Chunking</h2>
+                    <p>Creates chunks per recording, and persists <code>Chunk</code> rows. This is useful to test chunk creation in isolation with an existing recording id.</p>
+
+                    <label for="chunk-duration-ms-input">Chunk duration (ms)</label>
+                    <input id="chunk-duration-ms-input" type="number" value="30000" min="1" step="1000" />
+
+                    <label for="overlap-ms-input">Overlap (ms)</label>
+                    <input id="overlap-ms-input" type="number" value="5000" min="0" step="1000" />
+
+                    <div class="button-row">
+                        <button id="btn-step-5">Run Step 5</button>
+                    </div>
+                </div>
             </div>
 
             <div class="card">
                 <div id="status-full-pipeline" class="status">Idle</div>
                 <h2>Full preprocessing pipeline</h2>
-                <p>Runs all currently implemented stages in one request: upload, normalize, diarize, and VAD.</p>
+                <p>Runs all currently implemented stages in one request: upload, normalize, diarize, VAD and Chunking.</p>
 
                 <div class="button-row">
-                    <button id="btn-full-pipeline" class="success">Run Steps 1–4</button>
+                    <button id="btn-full-pipeline" class="success">Run Steps 1–5</button>
                 </div>
 
-                <div class="help">
+                <disv class="help">
                     This is useful for end-to-end testing with a real file. The response will include stage flags and any warning if one stage partially failed.
-                </div>
+                </disv>
             </div>
         </div>
 
@@ -323,6 +346,8 @@
 <script>
     const fileInput = document.getElementById("file-input");
     const recordingIdInput = document.getElementById("recording-id-input");
+    const chunkDurationMsInput = document.getElementById("chunk-duration-ms-input");
+    const overlapMsInput = document.getElementById("overlap-ms-input");
     const currentFile = document.getElementById("current-file");
     const currentRecordingId = document.getElementById("current-recording-id");
     const responseBox = document.getElementById("response-box");
@@ -332,6 +357,7 @@
         step2: document.getElementById("status-step-2"),
         step3: document.getElementById("status-step-3"),
         step4: document.getElementById("status-step-4"),
+        step5: document.getElementById("status-step-5"),
         full: document.getElementById("status-full-pipeline"),
     };
 
@@ -340,6 +366,7 @@
         step2: document.getElementById("btn-step-2"),
         step3: document.getElementById("btn-step-3"),
         step4: document.getElementById("btn-step-4"),
+        step5: document.getElementById("btn-step-5"),
         full: document.getElementById("btn-full-pipeline"),
     };
 
@@ -495,6 +522,31 @@
             }
         } catch (error) {
             setStatus(statusEls.step4, "Failed", "error");
+            setResponse(error.message);
+        }
+    });
+
+    buttons.step5.addEventListener("click", async () => {
+        try {
+            const recordingId = requireRecordingId();
+            setStatus(statusEls.step5, "Running...", "running");
+            setResponse("Running Step 5: Creating Chunks...");
+
+             const payloadBody = {
+                chunk_duration_milliseconds: Number(chunkDurationMsInput.value),
+                overlap_milliseconds: Number(overlapMsInput.value),
+            };
+
+            const { statusCode, payload } = await postJson(`/recordings/${recordingId}/chunks/`, payloadBody);
+
+            setResponse(payload);
+            if (statusCode === 200 || statusCode === 201) {
+                setStatus(statusEls.step5, "Completed", "success");
+            } else {
+                setStatus(statusEls.step5, "Failed", "error");
+            }
+        } catch (error) {
+            setStatus(statusEls.step5, "Failed", "error");
             setResponse(error.message);
         }
     });

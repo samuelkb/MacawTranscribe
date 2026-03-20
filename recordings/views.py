@@ -1,11 +1,14 @@
+import json
 import logging
 from typing import Final
+from uuid import UUID
 
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from recordings.services import ingest_uploaded_recording
+from recordings.models import Recording
+from recordings.services import ingest_uploaded_recording, create_chunks
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -60,6 +63,85 @@ def upload_recording(request: HttpRequest) -> JsonResponse:
             "status": recording.status,
             "original_file_path": recording.original_file_path,
             "normalized_file_path": recording.normalized_file_path,
+        },
+        status=201,
+    )
+
+
+@csrf_exempt
+@require_POST
+def create_chunks_view(request: HttpRequest, recording_id: UUID) -> JsonResponse:
+    """
+    Create chunk metadata for a recording
+    """
+    try:
+        recording = Recording.objects.get(id=recording_id)
+    except Recording.DoesNotExist:
+        return JsonResponse(
+            {
+                "error": "recording_not_found",
+                "detail": f"Recording {recording_id} was not found.",
+            },
+            status=404,
+        )
+    chunk_duration_milliseconds = 30_000
+    overlap_milliseconds = 5_000
+
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except json.JSONDecodeError:
+            return JsonResponse(
+                {
+                    "error": "invalid_json",
+                    "detail": "Request body must be a valid JSON.",
+                },
+                status=400,
+            )
+        chunk_duration_milliseconds = payload.get("duration_milliseconds", chunk_duration_milliseconds)
+        overlap_milliseconds = payload.get("overlap_milliseconds", overlap_milliseconds)
+    try:
+        chunks = create_chunks(
+            recording=recording,
+            chunk_duration_milliseconds=chunk_duration_milliseconds,
+            overlap_milliseconds=overlap_milliseconds,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "chunk_creation_rejected",
+            extra={
+                "recoding_id": str(recording.id),
+                "reason": str(exc),
+            }
+        )
+        return JsonResponse(
+            {
+                "error": "invalid_chunk_request",
+                "detail": str(exc),
+            },
+            status=400,
+        )
+    except Exception:
+        logger.exception(
+            "chunk_creation_failed",
+            extra={
+                "recoding_id": str(recording.id),
+            }
+        )
+        return JsonResponse(
+            {
+                "error": "chunk_creation_failed",
+                "detail": "Cunk creation failed.",
+            },
+            status=500,
+        )
+    return JsonResponse(
+        {
+            "recording_id": str(recording.id),
+            "status": recording.status,
+            "chunk_count": len(chunks),
+            "chunk_duration_milliseconds": chunk_duration_milliseconds,
+            "overlap_milliseconds": overlap_milliseconds,
         },
         status=201,
     )

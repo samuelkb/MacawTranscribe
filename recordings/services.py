@@ -11,7 +11,7 @@ from django.db import transaction
 from django.conf import settings
 from recordings.audio import _run_ffmpeg_normalization, probe_audio_duration_milliseconds
 from recordings.files import build_original_file_path, save_uploaded_file_atomic
-from recordings.models import Recording, RecordingStatus
+from recordings.models import Recording, RecordingStatus, Chunk, ChunkStatus
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -224,3 +224,83 @@ def ingest_uploaded_recording(*, uploaded_file: UploadedFile) -> Recording:
     )
 
     return recording
+
+def create_chunks(
+        *,
+        recording: Recording,
+        chunk_duration_milliseconds: int = 30_000,
+        overlap_milliseconds: int = 5_000
+) -> list[Chunk]:
+    """
+    Create fixed-duration chunk metadata for a recording.
+
+    Chunks are processing units used later for queueing and transcription. This function creates metadata only,
+    it does not extract chunk audio files. Existing chunks for the recording are replaced.
+    :param recording: Recording instance to chunk
+    :param chunk_duration_milliseconds: Target Chunk duration in milliseconds
+    :param overlap_milliseconds: Overlap between consecutive chunks in milliseconds
+    :return: list[Chunk]: Persisted chunk rows ordered by chunk_index
+    :raises ValueError: If recording is missing normalized audio, has invalid duration, or if chunk sizing parameters
+    are invalid.
+    """
+    if not recording.normalized_file_path or not recording.normalized_file_path.strip():
+        raise ValueError("recording.normalized_file_path must not be empty")
+    if recording.duration_milliseconds <= 0:
+        raise ValueError("recording.duration_milliseconds must be greater than 0")
+    if chunk_duration_milliseconds <= 0:
+        raise ValueError("chunk_duration_milliseconds must be greater than 0")
+    if overlap_milliseconds < 0:
+        raise ValueError("overlap_milliseconds must not be negative")
+    if overlap_milliseconds >= chunk_duration_milliseconds:
+        raise ValueError("overlap_milliseconds must be smaller than chunk_duration_milliseconds")
+
+    step_milliseconds = chunk_duration_milliseconds - overlap_milliseconds
+    logger.info(
+        "chunk_creation_started",
+        extra={
+            "recording_id": str(recording.id),
+            "duration_milliseconds": recording.duration_milliseconds,
+            "chunk_duration_milliseconds": chunk_duration_milliseconds,
+            "overlap_milliseconds": overlap_milliseconds,
+            "step_milliseconds": step_milliseconds,
+        }
+    )
+
+    chunks_to_create: list[Chunk] = []
+    chunk_index: int = 0
+    start_time: int = 0
+
+    while start_time < recording.duration_milliseconds:
+        end_time: int = min(start_time + chunk_duration_milliseconds, recording.duration_milliseconds)
+
+        chunks_to_create.append(
+            Chunk(
+                recording=recording,
+                chunk_index=chunk_index,
+                start_time=start_time,
+                end_time=end_time,
+                status=ChunkStatus.PENDING,
+            )
+        )
+
+        if end_time >= recording.duration_milliseconds:
+            break
+
+        chunk_index += 1
+        start_time += step_milliseconds
+
+    with transaction.atomic():
+        Chunk.objects.filter(recording=recording).delete()
+        created_chunks: list[Chunk] = Chunk.objects.bulk_create(chunks_to_create)
+        recording.status = RecordingStatus.CHUNKED
+        recording.save(update_fields=["status", "updated_at"])
+
+    logger.info(
+        "chunk_creation_completed",
+        extra={
+            "recording_id": str(recording.id),
+            "chunk_count": len(created_chunks),
+            "status": recording.status,
+        }
+    )
+    return created_chunks
