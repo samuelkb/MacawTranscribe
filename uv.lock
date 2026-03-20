@@ -672,7 +672,7 @@ wheels = [
 ]
 
 [[package]]
-name = "macawtranslate"
+name = "macawtranscribe"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
