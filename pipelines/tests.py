@@ -7,7 +7,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from pipelines.services import upload_and_normalize_recording, upload_normalize_and_diarize_recording
+from pipelines.services import upload_and_normalize_recording, upload_normalize_and_diarize_recording, \
+    upload_normalize_diarize_and_vad_recording
 from recordings.models import RecordingStatus, Recording
 
 
@@ -322,3 +323,195 @@ class UploadNormalizeAndDiarizeViewTests(TestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["error"], "uploaded_failed")
+
+
+class UploadNormalizeDiarizeAndVadRecordingTests(TestCase):
+    def test_returns_full_success(self) -> None:
+        uploaded = SimpleUploadedFile(
+            "interview.m4a",
+            b"fake audio bytes",
+            content_type="audio/mp4",
+        )
+
+        recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=125_000,
+            status=RecordingStatus.DIARIZED,
+        )
+
+        with patch("pipelines.services.ingest_uploaded_recording", return_value=recording):
+            with patch("pipelines.services.normalize_audio", return_value=recording):
+                with patch("pipelines.services.run_diarization", return_value=[]):
+                    with patch("pipelines.services.run_vad", return_value=[]):
+                        result = upload_normalize_diarize_and_vad_recording(
+                            uploaded_file=uploaded
+                        )
+
+        self.assertTrue(result.normalization_succeeded)
+        self.assertTrue(result.diarization_succeeded)
+        self.assertTrue(result.vad_succeeded)
+        self.assertIsNone(result.warning)
+
+    def test_returns_partial_success_when_normalization_fails(self) -> None:
+        uploaded = SimpleUploadedFile(
+            "interview.m4a",
+            b"fake audio bytes",
+            content_type="audio/mp4",
+        )
+
+        recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            duration_milliseconds=125_000,
+            status=RecordingStatus.UPLOADED,
+        )
+
+        with patch("pipelines.services.ingest_uploaded_recording", return_value=recording):
+            with patch("pipelines.services.normalize_audio", side_effect=RuntimeError("boom")):
+                result = upload_normalize_diarize_and_vad_recording(uploaded_file=uploaded)
+
+        self.assertFalse(result.normalization_succeeded)
+        self.assertFalse(result.diarization_succeeded)
+        self.assertFalse(result.vad_succeeded)
+        self.assertEqual(result.warning, "Upload succeeded but normalization failed.")
+
+    def test_returns_partial_success_when_diarization_fails(self) -> None:
+        uploaded = SimpleUploadedFile(
+            "interview.m4a",
+            b"fake audio bytes",
+            content_type="audio/mp4",
+        )
+
+        recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=125_000,
+            status=RecordingStatus.NORMALIZED,
+        )
+
+        with patch("pipelines.services.ingest_uploaded_recording", return_value=recording):
+            with patch("pipelines.services.normalize_audio", return_value=recording):
+                with patch("pipelines.services.run_diarization", side_effect=RuntimeError("boom")):
+                    result = upload_normalize_diarize_and_vad_recording(uploaded_file=uploaded)
+
+        self.assertTrue(result.normalization_succeeded)
+        self.assertFalse(result.diarization_succeeded)
+        self.assertFalse(result.vad_succeeded)
+        self.assertEqual(
+            result.warning,
+            "Upload and normalization succeeded but diarization failed.",
+        )
+
+    def test_returns_partial_success_when_vad_fails(self) -> None:
+        uploaded = SimpleUploadedFile(
+            "interview.m4a",
+            b"fake audio bytes",
+            content_type="audio/mp4",
+        )
+
+        recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=125_000,
+            status=RecordingStatus.DIARIZED,
+        )
+
+        with patch("pipelines.services.ingest_uploaded_recording", return_value=recording):
+            with patch("pipelines.services.normalize_audio", return_value=recording):
+                with patch("pipelines.services.run_diarization", return_value=[]):
+                    with patch("pipelines.services.run_vad", side_effect=RuntimeError("boom")):
+                        result = upload_normalize_diarize_and_vad_recording(uploaded_file=uploaded)
+
+        self.assertTrue(result.normalization_succeeded)
+        self.assertTrue(result.diarization_succeeded)
+        self.assertFalse(result.vad_succeeded)
+        self.assertEqual(
+            result.warning,
+            "Upload, normalization, and diarization succeeded but VAD failed.",
+        )
+
+
+class UploadNormalizeDiarizeAndVadViewTest(TestCase):
+    def test_returns_201_and_payload_on_success(self) -> None:
+        recording = Recording(
+            id=uuid4(),
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=125_000,
+            status=RecordingStatus.DIARIZED,
+        )
+
+        result = Mock()
+        result.recording = recording
+        result.normalization_succeeded = True
+        result.diarization_succeeded = True
+        result.vad_succeeded = True
+        result.warning = None
+
+        uploaded = SimpleUploadedFile(
+            "interview.m4a",
+            b"fake audio bytes",
+            content_type="audio/mp4",
+        )
+
+        with patch(
+                "pipelines.views.upload_normalize_diarize_and_vad_recording",
+                return_value=result,
+        ):
+            response = self.client.post(
+                reverse("pipelines:upload_normalize_diarize_and_vad_recording"),
+                {"file": uploaded},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+
+        self.assertTrue(payload["normalization_succeeded"])
+        self.assertTrue(payload["diarization_succeeded"])
+        self.assertTrue(payload["vad_succeeded"])
+        self.assertEqual(payload["status"], RecordingStatus.DIARIZED)
+
+    def test_returns_201_with_warning_on_partial_success(self) -> None:
+        recording = Recording(
+            id=uuid4(),
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=125_000,
+            status=RecordingStatus.DIARIZED,
+        )
+
+        result = Mock()
+        result.recording = recording
+        result.normalization_succeeded = True
+        result.diarization_succeeded = True
+        result.vad_succeeded = False
+        result.warning = "Upload, normalization, and diarization succeeded but VAD failed."
+
+        uploaded = SimpleUploadedFile(
+            "interview.m4a",
+            b"fake audio bytes",
+            content_type="audio/mp4",
+        )
+
+        with patch(
+                "pipelines.views.upload_normalize_diarize_and_vad_recording",
+                return_value=result,
+        ):
+            response = self.client.post(
+                reverse("pipelines:upload_normalize_diarize_and_vad_recording"),
+                {"file": uploaded},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertFalse(payload["vad_succeeded"])
+        self.assertEqual(
+            payload["warning"],
+            "Upload, normalization, and diarization succeeded but VAD failed.",
+        )
