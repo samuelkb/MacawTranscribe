@@ -1,69 +1,531 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Upload Recording</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pipeline Dashboard</title>
     <style>
-        body {
-            font-family: sans-serif;
-            padding: 40px;
+        :root {
+            --bg: #0f172a;
+            --panel: #111827;
+            --panel-2: #1f2937;
+            --border: #334155;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --accent: #22c55e;
+            --accent-2: #38bdf8;
+            --warn: #f59e0b;
+            --danger: #ef4444;
         }
 
-        .container {
-            max-width: 600px;
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .page {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            margin: 0 0 8px;
+            font-size: 2rem;
+        }
+
+        .header p {
+            margin: 0;
+            color: var(--muted);
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr;
+            gap: 20px;
+        }
+
+        .left-column,
+        .right-column {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+        }
+
+        .card h2 {
+            margin: 0 0 6px;
+            font-size: 1.1rem;
+        }
+
+        .card p {
+            margin: 0 0 16px;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .status {
+            display: inline-block;
+            margin-bottom: 14px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: var(--panel-2);
+            color: var(--muted);
+            font-size: 0.85rem;
+            border: 1px solid var(--border);
+        }
+
+        .status.success {
+            color: #bbf7d0;
+            border-color: #166534;
+            background: rgba(34, 197, 94, 0.12);
+        }
+
+        .status.warning {
+            color: #fde68a;
+            border-color: #92400e;
+            background: rgba(245, 158, 11, 0.12);
+        }
+
+        .status.error {
+            color: #fecaca;
+            border-color: #991b1b;
+            background: rgba(239, 68, 68, 0.12);
+        }
+
+        .status.running {
+            color: #bae6fd;
+            border-color: #075985;
+            background: rgba(56, 189, 248, 0.12);
+        }
+
+        label {
+            display: block;
+            margin: 10px 0 6px;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        input[type="file"],
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: #0b1220;
+            color: var(--text);
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+        }
+
+        button {
+            cursor: pointer;
+            border: 0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-weight: 600;
+            color: white;
+            background: var(--accent-2);
+        }
+
+        button.secondary {
+            background: #475569;
+        }
+
+        button.success {
+            background: var(--accent);
+        }
+
+        button.warn {
+            background: var(--warn);
+            color: #111827;
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .kv {
+            display: grid;
+            grid-template-columns: 140px 1fr;
+            gap: 8px 12px;
+            margin-top: 12px;
+            font-size: 0.95rem;
+        }
+
+        .kv .key {
+            color: var(--muted);
         }
 
         pre {
-            background: #111;
-            color: #0f0;
-            padding: 15px;
-            overflow-x: auto;
+            margin: 0;
+            background: #020617;
+            color: #cbd5e1;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            min-height: 280px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .response-card h2 {
+            margin-bottom: 14px;
+        }
+
+        .help {
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 1100px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .kv {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
-
 <body>
+<div class="page">
+    <div class="header">
+        <h1>Pipeline Dashboard</h1>
+        <p>Run and inspect the first four stages of the pipeline step by step: upload, normalize, diarize, and VAD.</p>
+    </div>
 
-<div class="container">
+    <div class="layout">
+        <div class="left-column">
+            <div class="card">
+                <h2>Recording Context</h2>
+                <p>Select an audio file, run Step 1, then use the returned recording id to continue with the later stages independently.</p>
 
-<h1>Upload Recording</h1>
+                <label for="file-input">Audio file</label>
+                <input id="file-input" type="file" name="file" />
 
-<form id="upload-form">
-    <input type="file" name="file" required />
-    <br><br>
-    <button type="submit">Upload</button>
-</form>
+                <label for="recording-id-input">Recording ID</label>
+                <input id="recording-id-input" type="text" placeholder="Filled automatically after upload or pipeline run" />
 
-<h2>Response</h2>
-<pre id="response"></pre>
+                <div class="kv">
+                    <div class="key">Current file</div>
+                    <div id="current-file">None selected</div>
 
+                    <div class="key">Current recording</div>
+                    <div id="current-recording-id">None yet</div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="card">
+                    <div id="status-step-1" class="status">Idle</div>
+                    <h2>Step 1 — Upload recording</h2>
+                    <p>Stores the original file on disk, probes duration, and creates the recording row with status <code>uploaded</code>.</p>
+
+                    <div class="button-row">
+                        <button id="btn-step-1" class="success">Run Step 1</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div id="status-step-2" class="status">Idle</div>
+                    <h2>Step 2 — Normalize audio</h2>
+                    <p>Creates <code>normalized.wav</code> and updates the recording to status <code>normalized</code>.</p>
+
+                    <div class="button-row">
+                        <button id="btn-step-2">Run Step 2</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div id="status-step-3" class="status">Idle</div>
+                    <h2>Step 3 — Run diarization</h2>
+                    <p>Runs full-recording speaker diarization and persists <code>SpeakerSegment</code> rows. Recording status becomes <code>diarized</code>.</p>
+
+                    <div class="button-row">
+                        <button id="btn-step-3">Run Step 3</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div id="status-step-4" class="status">Idle</div>
+                    <h2>Step 4 — Run VAD</h2>
+                    <p>Runs voice activity detection, derives silence gaps, and persists <code>SilenceSegment</code> rows.</p>
+
+                    <div class="button-row">
+                        <button id="btn-step-4" class="warn">Run Step 4</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div id="status-full-pipeline" class="status">Idle</div>
+                <h2>Full preprocessing pipeline</h2>
+                <p>Runs all currently implemented stages in one request: upload, normalize, diarize, and VAD.</p>
+
+                <div class="button-row">
+                    <button id="btn-full-pipeline" class="success">Run Steps 1–4</button>
+                </div>
+
+                <div class="help">
+                    This is useful for end-to-end testing with a real file. The response will include stage flags and any warning if one stage partially failed.
+                </div>
+            </div>
+        </div>
+
+        <div class="right-column">
+            <div class="card response-card">
+                <h2>Response</h2>
+                <pre id="response-box">No requests yet.</pre>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
-const form = document.getElementById("upload-form");
-const responseBox = document.getElementById("response");
+    const fileInput = document.getElementById("file-input");
+    const recordingIdInput = document.getElementById("recording-id-input");
+    const currentFile = document.getElementById("current-file");
+    const currentRecordingId = document.getElementById("current-recording-id");
+    const responseBox = document.getElementById("response-box");
 
-form.addEventListener("submit", async (event) => {
-    event.preventDefault();
+    const statusEls = {
+        step1: document.getElementById("status-step-1"),
+        step2: document.getElementById("status-step-2"),
+        step3: document.getElementById("status-step-3"),
+        step4: document.getElementById("status-step-4"),
+        full: document.getElementById("status-full-pipeline"),
+    };
 
-    const formData = new FormData(form);
+    const buttons = {
+        step1: document.getElementById("btn-step-1"),
+        step2: document.getElementById("btn-step-2"),
+        step3: document.getElementById("btn-step-3"),
+        step4: document.getElementById("btn-step-4"),
+        full: document.getElementById("btn-full-pipeline"),
+    };
 
-    responseBox.textContent = "Uploading...";
-
-    const response = await fetch("/pipelines/upload-normalize-diarize-vad/", {
-        method: "POST",
-        body: formData
+    fileInput.addEventListener("change", () => {
+        currentFile.textContent = fileInput.files.length ? fileInput.files[0].name : "None selected";
     });
 
-    const text = await response.text();
-
-    try {
-        const json = JSON.parse(text);
-        responseBox.textContent = JSON.stringify(json, null, 2);
-    } catch {
-        responseBox.textContent = text;
+    function setStatus(element, text, tone = "") {
+        element.className = "status" + (tone ? ` ${tone}` : "");
+        element.textContent = text;
     }
-});
-</script>
 
+    function setResponse(data) {
+        if (typeof data === "string") {
+            responseBox.textContent = data;
+            return;
+        }
+        responseBox.textContent = JSON.stringify(data, null, 2);
+    }
+
+    function setRecordingContextFromPayload(payload) {
+        if (payload && payload.id) {
+            recordingIdInput.value = payload.id;
+            currentRecordingId.textContent = payload.id;
+        }
+    }
+
+    function requireFile() {
+        if (!fileInput.files.length) {
+            throw new Error("Please choose an audio file first.");
+        }
+    }
+
+    function requireRecordingId() {
+        const recordingId = recordingIdInput.value.trim();
+        if (!recordingId) {
+            throw new Error("Please provide a recording id. Run Step 1 first or paste an existing id.");
+        }
+        return recordingId;
+    }
+
+    async function parseResponse(response) {
+        const text = await response.text();
+        try {
+            return JSON.parse(text);
+        } catch {
+            return text;
+        }
+    }
+
+    async function postMultipart(url, formData) {
+        const response = await fetch(url, {
+            method: "POST",
+            body: formData
+        });
+        return {
+            statusCode: response.status,
+            payload: await parseResponse(response)
+        };
+    }
+
+    async function postJson(url, payload) {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+        return {
+            statusCode: response.status,
+            payload: await parseResponse(response)
+        };
+    }
+
+    buttons.step1.addEventListener("click", async () => {
+        try {
+            requireFile();
+            setStatus(statusEls.step1, "Running...", "running");
+            setResponse("Running Step 1: upload recording...");
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            const { statusCode, payload } = await postMultipart("/recordings/upload/", formData);
+
+            setResponse(payload);
+            if (statusCode === 201) {
+                setRecordingContextFromPayload(payload);
+                setStatus(statusEls.step1, "Completed", "success");
+            } else {
+                setStatus(statusEls.step1, "Failed", "error");
+            }
+        } catch (error) {
+            setStatus(statusEls.step1, "Failed", "error");
+            setResponse(error.message);
+        }
+    });
+
+    buttons.step2.addEventListener("click", async () => {
+        try {
+            const recordingId = requireRecordingId();
+            setStatus(statusEls.step2, "Running...", "running");
+            setResponse("Running Step 2: normalize audio...");
+
+            const { statusCode, payload } = await postJson(`/recordings/${recordingId}/normalize/`, {});
+
+            setResponse(payload);
+            if (statusCode === 200 || statusCode === 201) {
+                setStatus(statusEls.step2, "Completed", "success");
+            } else {
+                setStatus(statusEls.step2, "Failed", "error");
+            }
+        } catch (error) {
+            setStatus(statusEls.step2, "Failed", "error");
+            setResponse(error.message);
+        }
+    });
+
+    buttons.step3.addEventListener("click", async () => {
+        try {
+            const recordingId = requireRecordingId();
+            setStatus(statusEls.step3, "Running...", "running");
+            setResponse("Running Step 3: diarization...");
+
+            const { statusCode, payload } = await postJson(`/speakers/${recordingId}/diarize/`, {});
+
+            setResponse(payload);
+            if (statusCode === 200 || statusCode === 201) {
+                setStatus(statusEls.step3, "Completed", "success");
+            } else {
+                setStatus(statusEls.step3, "Failed", "error");
+            }
+        } catch (error) {
+            setStatus(statusEls.step3, "Failed", "error");
+            setResponse(error.message);
+        }
+    });
+
+    buttons.step4.addEventListener("click", async () => {
+        try {
+            const recordingId = requireRecordingId();
+            setStatus(statusEls.step4, "Running...", "running");
+            setResponse("Running Step 4: VAD...");
+
+            const { statusCode, payload } = await postJson(`/speakers/${recordingId}/vad/`, {});
+
+            setResponse(payload);
+            if (statusCode === 200 || statusCode === 201) {
+                setStatus(statusEls.step4, "Completed", "success");
+            } else {
+                setStatus(statusEls.step4, "Failed", "error");
+            }
+        } catch (error) {
+            setStatus(statusEls.step4, "Failed", "error");
+            setResponse(error.message);
+        }
+    });
+
+    buttons.full.addEventListener("click", async () => {
+        try {
+            requireFile();
+            setStatus(statusEls.full, "Running...", "running");
+            setResponse("Running Steps 1–4: upload, normalize, diarize, VAD...");
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            const { statusCode, payload } = await postMultipart("/pipelines/upload-normalize-diarize-vad/", formData);
+
+            setResponse(payload);
+            if (statusCode === 201) {
+                setRecordingContextFromPayload(payload);
+                if (payload.warning) {
+                    setStatus(statusEls.full, "Completed with warning", "warning");
+                } else {
+                    setStatus(statusEls.full, "Completed", "success");
+                }
+            } else {
+                setStatus(statusEls.full, "Failed", "error");
+            }
+        } catch (error) {
+            setStatus(statusEls.full, "Failed", "error");
+            setResponse(error.message);
+        }
+    });
+</script>
 </body>
 </html>
