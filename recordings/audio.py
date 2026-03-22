@@ -1,8 +1,11 @@
 import logging
 import subprocess
+import tempfile
 from typing import Final
 
 from pathlib import Path
+
+from recordings.models import Chunk
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -16,6 +19,11 @@ class AudioProbeError(RuntimeError):
     """
     Raised when audio metadata probing fails.
     """
+
+
+class ChunkAudioExtractionError(RuntimeError):
+    """Raised when chunk audio extraction fails."""
+
 
 def probe_audio_duration_milliseconds(*, input_path: Path) -> int:
     """
@@ -135,3 +143,91 @@ def _run_ffmpeg_normalization(*, input_path:Path, output_path:Path) -> None:
         raise AudioNormalizationError(
             f"ffmpeg normalization failed: {stderr or "unknown error"}"
         ) from exec
+
+def extract_chunk_audio(*, chunk: Chunk) -> Path:
+    """
+    Extract a chunk audio file from a recordings normalized audio.
+
+    The extracted chunk is written as a temporary WAV file and is intended to be consumed immediately by a transcription
+    code.
+    :param chunk: Chunk object instance to extract audio from.
+    :return: Path to the extracted temporary chunk WAV file.
+    :raises ValueError: If the chunk timing is invalid or normalized audio path is missing.
+    :raises FileNotFoundError: If the normalized audio file does not exist.
+    :raises ChunkAudioError: If ffmpeg execution fails.
+    """
+    recording = chunk.recording
+
+    if not recording.normalized_file_path or not recording.normalized_file_path.strip():
+        raise ValueError("recording.normalized_file_path must not be empty")
+    if chunk.start_time < 0:
+        raise ValueError("chunk.start_time must not be negative")
+    if chunk.end_time <= chunk.start_time:
+        raise ValueError("chunk.end_time must be greater than chunk.start_ms")
+    source_path = Path(recording.normalized_file_path)
+    if not source_path.exists():
+        raise FileNotFoundError(f"normalized audio file was not found: {source_path}")
+
+    start_seconds = chunk.start_time / 1000
+    duration_seconds = (chunk.end_time - chunk.start_time) / 1000
+    temp_file = tempfile.NamedTemporaryFile(
+        suffix=".wav",
+        prefix=f"chunk-{chunk.id}-",
+        delete=False,
+    )
+    output_path = Path(temp_file.name)
+    temp_file.close()
+    command = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start_seconds),
+        "-i",
+        str(source_path),
+        "-t",
+        str(duration_seconds),
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        str(output_path),
+    ]
+    logger.info(
+        "chunk_audio_extraction_started",
+        extra={
+            "recording_id": str(recording.id),
+            "chunk_id": str(chunk.id),
+            "chunk_index": chunk.chunk_index,
+            "source_path": str(source_path),
+            "output_path": str(output_path),
+            "start_time": chunk.start_time,
+            "end_time": chunk.end_time,
+        },
+    )
+    try:
+        logger.debug(f"ffmpeg executing command: {command}")
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        output_path.unlink(missing_ok=True)
+        raise ChunkAudioExtractionError("ffmpeg executable was not found") from exc
+    except subprocess.CalledProcessError as exc:
+        output_path.unlink(missing_ok=True)
+        stderr = exc.stderr.strip() if exc.stderr else ""
+        raise ChunkAudioExtractionError(f"ffmpeg chunk extraction failed: {stderr or "unknown error"}") from exc
+    logger.info(
+        "chunk_audio_extraction_completed",
+        extra={
+            "recording_id": str(recording.id),
+            "chunk_id": str(chunk.id),
+            "chunk_index": chunk.chunk_index,
+            "output_path": str(output_path),
+        }
+    )
+    return output_path

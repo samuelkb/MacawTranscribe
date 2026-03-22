@@ -1,0 +1,431 @@
+import logging
+from pathlib import Path
+from typing import Final
+from uuid import UUID
+
+from django.db import transaction
+from django.utils import timezone
+
+from ml.manager import ModelManager
+from ml.types import BackendName, ModelName
+from recordings.audio import extract_chunk_audio
+from recordings.models import Chunk, ChunkStatus
+from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate, Edit
+
+logger: Final[logging.Logger] = logging.getLogger(__name__)
+
+
+class ChunkTranscriptionError(RuntimeError):
+    """Raised when chunk transcription fails."""
+
+
+def persist_transcription_words(*, chunk: Chunk, words: tuple, model_used: str) -> list[TranscriptWord]:
+    """
+    Replace the machine-generated word-level transcript rows for a chunk.
+
+    Existing TranscriptWord rows for the chunk are deleted and replaced.
+    :param chunk: Chunk whose word-level transcription should be replaced.
+    :param words: Sequence of backend word objects compatible with the ML backend contract.
+    :param model_used: Model used to transcription.
+    :return: Persisted transcript word rows.
+    """
+    logger.info(
+        "persist_transcription_words_started",
+        extra={
+            "chunk": chunk,
+            "num_words": len(words)
+        },
+    )
+    TranscriptWord.objects.filter(chunk=chunk).delete()
+    logger.info(f"pre-existing words for chunk {chunk.id} deleted")
+    created_words: list[TranscriptWord] = TranscriptWord.objects.bulk_create(
+        [
+            TranscriptWord(
+                chunk=chunk,
+                word_index=word.word_index,
+                text=word.text,
+                start_time=word.start_time,
+                end_time=word.end_time,
+                confidence=word.confidence,
+                model_used=model_used,
+            )
+            for word in words
+        ]
+    )
+    logger.info(
+        "persist_transcription_words_completed",
+        extra={
+            "chunk": chunk,
+            "num_words": len(words)
+        }
+    )
+    return list(created_words)
+
+def create_initial_transcript(*, chunk: Chunk, accepted_text: str, model_used: str | None) -> Transcript:
+    """
+    Create the first accepted transcript for a chunk.
+    :param chunk: Chunk receiving its initial accepted transcript.
+    :param accepted_text: Initial machine-generated transcript text.
+    :param model_used: Model used to create the text.
+    :return: Newly created Transcript row.
+    :raises ValueError: If chunk already has an accepted transcript.
+    """
+    logger.info(
+        "create_initial_transcript_started",
+        extra={
+            "chunk": chunk,
+            "accepted_text": accepted_text,
+            "model_used": model_used,
+        }
+    )
+    if Transcript.objects.filter(chunk=chunk).exists():
+        raise ValueError("chunk already has an accepted transcript")
+    return Transcript.objects.create(
+        chunk=chunk,
+        accepted_text=accepted_text,
+        model_used=model_used,
+    )
+
+def create_transcript_candidate(
+        *,
+        chunk: Chunk,
+        candidate_text: str,
+        model_used: str | None,
+        confidence: float | None = None,
+        is_from_retry: bool = True,
+)->TranscriptCandidate:
+    """
+    Create a machine-generated transcript candidate for a chunk.
+    :param chunk: Chunk receiving the candidate transcript.
+    :param candidate_text: Candidate transcript text.
+    :param model_used: Model used to create the candidate text.
+    :param confidence: Optional Confidence score for candidate transcript.
+    :param is_from_retry: Whether the candidate transcript came from a retry workflow
+    :return: Candidate transcript candidate row.
+    """
+    logger.info(
+        "create_transcript_candidate_started",
+        extra={
+            "chunk": chunk,
+            "candidate_text": candidate_text,
+            "model_used": model_used,
+            "confidence": confidence,
+            "is_from_retry": is_from_retry,
+        }
+    )
+    candidate: TranscriptCandidate = TranscriptCandidate.objects.create(
+        chunk=chunk,
+        candidate_text=candidate_text,
+        model_used=model_used,
+        confidence=confidence,
+        is_from_retry=is_from_retry,
+    )
+    if not chunk.has_pending_candidate:
+        chunk.has_pending_candidate = True
+        chunk.save(update_fields=["has_pending_candidate", "updated_at"])
+    logger.info(
+        "create_transcript_candidate_completed",
+        extra={
+            "chunk": chunk,
+            "candidate_text": candidate_text,
+            "model_used": model_used,
+            "confidence": confidence,
+            "is_from_retry": is_from_retry,
+        }
+    )
+    return candidate
+
+def apply_candidate(*, candidate: TranscriptCandidate) -> Transcript:
+    """
+    Apply a transcript candidate as the current accepted transcript.
+
+    - Updates or creates the chunk's accepted transcript.
+    - Marks the selected candidate as accepted.
+    - Marks other non-finalized candidates for the same chunk as rejected.
+    - Clears chunk.has_pending_candidate.
+    :param candidate: Candidate transcript candidate row.
+    :return: Updated accepted transcript row.
+    """
+    logger.info(
+        "apply_candidate_started",
+        extra={
+            "candidate": candidate.__str__(),
+        }
+    )
+    now = timezone.now()
+    chunk: Chunk = candidate.chunk
+    with transaction.atomic():
+        transcript, _ = Transcript.objects.get_or_create(
+            chunk=chunk,
+            defaults={
+                "accepted_text": candidate.candidate_text,
+                "model_used": candidate.model_used,
+            }
+        )
+        transcript.accepted_text = candidate.candidate_text
+        transcript.model_used = candidate.model_used
+        transcript.save(update_fields=["accepted_text", "model_used", "updated_at"])
+        logger.info(
+            "save_transcript_update",
+            extra={
+                "transcript": transcript.__str__(),
+            }
+        )
+        candidate.accepted = True
+        candidate.rejected = False
+        candidate.accepted_at = now
+        candidate.rejected_at =None
+        candidate.save(update_fields=["accepted", "rejected", "accepted_at", "rejected_at"])
+        logger.info(
+            "save_candidate_update",
+            extra={
+                "candidate": candidate.__str__(),
+            }
+        )
+        TranscriptCandidate.objects.filter(chunk=chunk).exclude(id=candidate.id).filter(
+            accepted=False,
+            rejected=False,
+        ).update(
+            rejected=True,
+            rejected_at=now,
+        )
+        logger.info("mark_other_non_finalized_candidates_rejected")
+        chunk.has_pending_candidate = False
+        chunk.save(update_fields=["has_pending_candidate", "updated_at"])
+
+    return transcript
+
+def append_edit(*, transcript: Transcript, edited_text: str, editor: str = "user") -> Edit:
+    """
+    Append a human edit and update the current accepted transcript.
+    :param transcript: Transcript being edited.
+    :param edited_text: New accepted text.
+    :param editor: Identifier for the editor.
+    :return: Persisted edit row.
+    """
+    logger.info(
+        "append_edit_started",
+        extra={
+            "transcript": transcript.__str__(),
+            "edited_text": edited_text,
+            "editor": editor,
+        }
+    )
+    with transaction.atomic():
+        edit = Edit.objects.create(
+            transcript=transcript,
+            edited_text=edited_text,
+            editor=editor,
+        )
+        transcript.accepted_text = edited_text
+        transcript.save(update_fields=["accepted_text", "updated_at"])
+    logger.info(
+        "append_edit_completed",
+        extra={
+            "transcript": transcript.__str__(),
+            "edited_text": edited_text,
+            "editor": editor,
+        }
+    )
+    return edit
+
+def _mark_chunk_processing(*, chunk: Chunk, worker_id: str | None) -> None:
+    logger.info(
+        "_mark_chunk_processing_started",
+        extra={
+            "chunk": chunk.__str__(),
+            "worker_id": worker_id,
+        }
+    )
+    chunk.status = ChunkStatus.PROCESSING
+    chunk.attempt_count += 1
+    chunk.processing_started_at = timezone.now()
+    chunk.heartbeat_at = timezone.now()
+    chunk.worker_id = worker_id
+    chunk.save(update_fields=[
+        "status",
+        "attempt_count",
+        "processing_started_at",
+        "heartbeat_at",
+        "worker_id",
+        "updated_at",
+    ])
+    logger.info(
+        "_mark_chunk_processing_completed",
+        extra={
+            "chunk": chunk.__str__(),
+            "worker_id": worker_id,
+            "updated_at": chunk.updated_at,
+        }
+    )
+
+def _mark_chunk_completed(*, chunk: Chunk) -> None:
+    logger.info(
+        "_mark_chunk_completed_started",
+        extra={
+            "chunk": chunk.__str__(),
+        }
+    )
+    chunk.status = ChunkStatus.COMPLETED
+    chunk.last_error = ""
+    chunk.last_failed_at = None
+    chunk.heartbeat_at = timezone.now()
+    chunk.save(update_fields=[
+        "status",
+        "last_error",
+        "last_failed_at",
+        "heartbeat_at",
+        "updated_at",
+    ])
+    logger.info(
+        "_mark_chunk_completed_completed",
+        extra={
+            "chunk": chunk.__str__(),
+            "updated_at": chunk.updated_at,
+        }
+    )
+
+def _mark_chunk_failed(*, chunk: Chunk, error_message: str) -> None:
+    logger.info(
+        "_mark_chunk_failed_started",
+        extra={
+            "chunk": chunk.__str__(),
+            "error_message": error_message,
+        }
+    )
+    chunk.status = ChunkStatus.FAILED
+    chunk.last_error = error_message
+    chunk.last_failed_at = timezone.now()
+    chunk.heartbeat_at = timezone.now()
+    chunk.save(update_fields=[
+        "status",
+        "last_error",
+        "last_failed_at",
+        "heartbeat_at",
+        "updated_at",
+    ])
+    logger.info(
+        "_mark_chunk_failed_completed",
+        extra={
+            "chunk": chunk.__str__(),
+            "updated_at": chunk.updated_at,
+        }
+    )
+
+def _derive_full_text_from_words(words: tuple) -> str:
+    """
+    Build transcript text from backend words.
+    """
+    logger.info("_derive_full_text_from_words_started")
+    return "".join(words.text.strip() for word in words if word.text.strip()).strip()
+
+def transcribe_chunk(
+        *,
+        chunk_id: UUID,
+        backend: BackendName | None = None,
+        model: ModelName | None = None,
+        worker_id: str | None = None,
+) -> Transcript:
+    """
+    Transcribe one chunk end-to-end.
+
+    Flow:
+    1. Load chunk and recording
+    2. Mark chunk as processing
+    3. Resolve and load backend/model
+    4. Extract chunk audio on demand
+    5. Transcribe chunk audio
+    6. Replace TranscriptWord rows
+    7. Create initial Transcript or create a TranscriptCandidate
+    8. Mark chunk completed
+    :param chunk_id: Chunk identifier.
+    :param backend: Optional transcription backend.
+    :param model: Optional transcription model.
+    :param worker_id: Optional worker identifier for heartbeat/debugging.
+    :return: The current accepted transcript for the chunk.
+    :raises Chunk.DoesNotExist: Chunk does not exist.
+    :raises ChunkTranscriptionError: If transcription fails.
+    """
+    chunk = (Chunk.objects.select_related("recording").get(id=chunk_id))
+    if not chunk.recording.normalized_file_path or not chunk.recording.normalized_file_path.strip():
+        raise ChunkTranscriptionError("recording.normalized_file_path must not be empty")
+    logger.info(
+        "chunk_transcription_started",
+        extra={
+            "chunk_id": str(chunk.id),
+            "chunk_index": chunk.chunk_index,
+            "recording_id": str(chunk.recording.id),
+            "worker_id": worker_id,
+            "backend": backend.value if backend else None,
+            "model": model.value if model else None,
+        }
+    )
+
+    _mark_chunk_processing(chunk=chunk, worker_id=worker_id)
+
+    manager = ModelManager()
+    temp_audio_path: Path | None = None
+
+    try:
+        selection, backend_impl, loaded_model = manager.load_model(backend=backend, model=model)
+        temp_audio_path = extract_chunk_audio(chunk=chunk)
+        result = backend_impl.transcribe(loaded_model=loaded_model,audio_path=temp_audio_path)
+        model_used_value = result.model_used.value
+        persisted_words = persist_transcription_words(chunk=chunk,words=result.words, model_used=model_used_value)
+        accepted_text = result.full_text.strip() or _derive_full_text_from_words(result.words)
+
+        try:
+            transcript = create_initial_transcript(
+                chunk=chunk,
+                accepted_text=accepted_text,
+                model_used=model_used_value,
+            )
+            created_candidate = False
+        except ValueError:
+            transcript = chunk.transcript
+            create_transcript_candidate(
+                chunk=chunk,
+                candidate_text=accepted_text,
+                model_used=model_used_value,
+                confidence=None,
+                is_from_retry=True,
+            )
+            created_candidate = True
+
+        _mark_chunk_completed(chunk=chunk)
+
+        logger.info(
+            "chunk_transcription_completed",
+            extra={
+                "chunk_id": str(chunk.id),
+                "chunk_index": chunk.chunk_index,
+                "recording_id": str(chunk.recording_id),
+                "backend_used": selection.backend.value,
+                "model_used": selection.model.value,
+                "word_count": len(persisted_words),
+                "created_candidate": created_candidate,
+                "status": chunk.status,
+            },
+        )
+
+        return transcript
+
+    except Exception as exc:
+        error_message = str(exc)
+        _mark_chunk_failed(chunk=chunk, error_message=error_message)
+
+        logger.exception(
+            "chunk_transcription_failed",
+            extra={
+                "chunk_id": str(chunk.id),
+                "chunk_index": chunk.chunk_index,
+                "recording_id": str(chunk.recording_id),
+                "worker_id": worker_id,
+                "error": error_message,
+            },
+        )
+        raise ChunkTranscriptionError(error_message) from exc
+
+    finally:
+        if temp_audio_path is not None:
+            temp_audio_path.unlink(missing_ok=True)

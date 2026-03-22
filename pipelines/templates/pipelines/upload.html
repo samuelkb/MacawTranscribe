@@ -317,6 +317,34 @@
                         <button id="btn-step-5">Run Step 5</button>
                     </div>
                 </div>
+                
+                <div class="card">
+                    <div id="status-step-7" class="status">Idle</div>
+                    <h2>Step 7 — Run Transcribe Chunk </h2>
+                    <p>Runs transcription of one chunk</p>
+
+                    <label for="chunk-id-input">Chunk ID</label>
+                    <input id="chunk-id-input" type="text" placeholder="Paste chunk UUID" style="width: 100%; margin-bottom: 8px;"/>
+                    
+                    <label for="backend-select">Backend</label>
+                    <select id="backend-select" style="width: 100%; margin-bottom: 8px;">
+                        <option value="">Default</option>
+                        <option value="mlx-whisper">mlx-whisper</option>
+                        <option value="whisper.cpp">whisper.cpp</option>
+                    </select>
+
+                    <label for="model-select">Model</label>
+                    <select id="model-select" style="width: 100%; margin-bottom: 12px;">
+                        <option value="">Default</option>
+                        <option value="small">small</option>
+                        <option value="medium">medium</option>
+                        <option value="large-v3">large-v3</option>
+                    </select>
+
+                    <div class="button-row">
+                        <button id="btn-step-7">Run Step 7</button>
+                    </div>
+                </div>
             </div>
 
             <div class="card">
@@ -350,6 +378,9 @@
     const overlapMsInput = document.getElementById("overlap-ms-input");
     const currentFile = document.getElementById("current-file");
     const currentRecordingId = document.getElementById("current-recording-id");
+    const chunkIdInput = document.getElementById("chunk-id-input");
+    const backendSelect = document.getElementById("backend-select");
+    const modelSelect = document.getElementById("model-select");
     const responseBox = document.getElementById("response-box");
 
     const statusEls = {
@@ -358,6 +389,7 @@
         step3: document.getElementById("status-step-3"),
         step4: document.getElementById("status-step-4"),
         step5: document.getElementById("status-step-5"),
+        step7: document.getElementById("status-step-7"),
         full: document.getElementById("status-full-pipeline"),
     };
 
@@ -367,6 +399,7 @@
         step3: document.getElementById("btn-step-3"),
         step4: document.getElementById("btn-step-4"),
         step5: document.getElementById("btn-step-5"),
+        step7: document.getElementById("btn-step-7"),
         full: document.getElementById("btn-full-pipeline"),
     };
 
@@ -406,6 +439,14 @@
             throw new Error("Please provide a recording id. Run Step 1 first or paste an existing id.");
         }
         return recordingId;
+    }
+    
+    function requireChunkId() {
+        const chunkId = chunkIdInput.value.trim();
+        if (!chunkId) {
+            throw new Error("Please provide a chunk id. Run Step 1 first or paste an existing id.");
+        }
+        return chunkId;
     }
 
     async function parseResponse(response) {
@@ -538,6 +579,37 @@
             };
 
             const { statusCode, payload } = await postJson(`/recordings/${recordingId}/chunks/`, payloadBody);
+
+            setResponse(payload);
+            if (statusCode === 200 || statusCode === 201) {
+                setStatus(statusEls.step5, "Completed", "success");
+            } else {
+                setStatus(statusEls.step5, "Failed", "error");
+            }
+        } catch (error) {
+            setStatus(statusEls.step5, "Failed", "error");
+            setResponse(error.message);
+        }
+    });
+    
+    buttons.step7.addEventListener("click", async () => {
+        try {
+            const chunkId = requireChunkId();
+            const backend = backendSelect.value.trim();
+            const model = modelSelect.value.trim();
+            setStatus(statusEls.step5, "Running...", "running");
+            setResponse("Running Step 7: Creating Chunks...");
+            
+            const payloadBody = {};
+            if (backend) payloadBody.backend = backend;
+            if (model) payloadBody.model = model;
+            // payloadBody.worker_id = "dashboard";
+
+            console.log("backend:", backend);
+            console.log("typeof backend:", typeof backend);
+            console.log("payloadBody:", payloadBody);
+
+            const { statusCode, payload } = await postJson(`/transcriptions/chunks/${chunkId}/transcribe/`, payloadBody);
 
             setResponse(payload);
             if (statusCode === 200 || statusCode === 201) {

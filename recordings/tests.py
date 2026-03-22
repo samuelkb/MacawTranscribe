@@ -13,7 +13,8 @@ from django.urls import reverse
 from recordings.files import build_recording_directory, build_original_file_path, save_uploaded_file_atomic
 from recordings.models import Chunk, Recording, RecordingStatus, ChunkStatus
 from recordings.services import create_recording, normalize_audio, ingest_uploaded_recording, create_chunks
-from recordings.audio import AudioNormalizationError, AudioProbeError, _run_ffmpeg_normalization, probe_audio_duration_milliseconds
+from recordings.audio import AudioNormalizationError, AudioProbeError, _run_ffmpeg_normalization, \
+    probe_audio_duration_milliseconds, extract_chunk_audio, ChunkAudioExtractionError
 
 
 class ChunkMetaTests(TestCase):
@@ -704,3 +705,99 @@ class CreateChunksViewTest(TestCase):
             )
 
         self.assertEqual(response.status_code, 500)
+
+
+class ExtractChunkAudioTests(TestCase):
+    def setUp(self) -> None:
+        self.tmp_dir = TemporaryDirectory()
+        self.addCleanup(self.tmp_dir.cleanup)
+
+        self.recording_dir = Path(self.tmp_dir.name) / "recording"
+        self.recording_dir.mkdir(parents=True, exist_ok=True)
+
+        self.normalized_path = self.recording_dir / "normalized.wav"
+        self.normalized_path.write_bytes(b"fake-normalized-audio")
+
+        self.recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path=str(self.recording_dir / "original.m4a"),
+            normalized_file_path=str(self.normalized_path),
+            duration_milliseconds=60_000,
+            status=RecordingStatus.CHUNKED,
+        )
+
+        self.chunk = Chunk.objects.create(
+            recording=self.recording,
+            chunk_index=0,
+            start_time=5_000,
+            end_time=20_000,
+            status=ChunkStatus.PENDING,
+        )
+
+    @patch("recordings.audio.subprocess.run")
+    def test_extract_chunk_audio_returns_temp_wav_path(self, mock_run: Mock) -> None:
+        output_path = extract_chunk_audio(chunk=self.chunk)
+
+        self.assertTrue(output_path.name.endswith(".wav"))
+        self.assertTrue(output_path.exists())
+
+        args, kwargs = mock_run.call_args
+        command = args[0]
+
+        self.assertIn(str(self.normalized_path), command)
+        self.assertIn(str(output_path), command)
+        self.assertTrue(kwargs["check"])
+        self.assertTrue(kwargs["capture_output"])
+        self.assertTrue(kwargs["text"])
+
+        output_path.unlink(missing_ok=True)
+
+    def test_extract_chunk_audio_rejects_negative_start(self) -> None:
+        self.chunk.start_time = -1
+        self.chunk.save(update_fields=["start_time"])
+
+        with self.assertRaisesMessage(
+                ValueError,
+                "chunk.start_time must not be negative",
+        ):
+            extract_chunk_audio(chunk=self.chunk)
+
+    def test_extract_chunk_audio_raises_if_source_missing(self) -> None:
+        self.normalized_path.unlink()
+
+        with self.assertRaises(FileNotFoundError):
+            extract_chunk_audio(chunk=self.chunk)
+
+    @patch("recordings.audio.subprocess.run", side_effect=FileNotFoundError)
+    def test_extract_chunk_audio_raises_clear_error_if_ffmpeg_missing(self, mock_run: Mock) -> None:
+        with self.assertRaisesMessage(
+                ChunkAudioExtractionError,
+                "ffmpeg executable was not found",
+        ):
+            extract_chunk_audio(chunk=self.chunk)
+
+    @patch(
+        "recordings.audio.subprocess.run",
+        side_effect=subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["ffmpeg"],
+            stderr="bad input",
+        ),
+    )
+    def test_extract_chunk_audio_raises_clear_error_on_ffmpeg_failure(self, mock_run: Mock) -> None:
+        with self.assertRaisesMessage(
+                ChunkAudioExtractionError,
+                "ffmpeg chunk extraction failed: bad input",
+        ):
+            extract_chunk_audio(chunk=self.chunk)
+
+    @patch("recordings.audio.subprocess.run")
+    def test_extract_chunk_audio_logs_start_and_completion(self, mock_run: Mock) -> None:
+        with self.assertLogs("recordings.audio", level="INFO") as captured:
+            output_path = extract_chunk_audio(chunk=self.chunk)
+
+        output = "\n".join(captured.output)
+        self.assertIn("chunk_audio_extraction_started", output)
+        self.assertIn("chunk_audio_extraction_completed", output)
+
+        output_path.unlink(missing_ok=True)
