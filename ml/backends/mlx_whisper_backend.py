@@ -48,7 +48,7 @@ class MlxWhisperBackend(TranscriptionBackend):
     MODEL_REPO_MAP: dict[ModelName, str] = {
         ModelName.SMALL: "mlx-community/whisper-small",
         ModelName.MEDIUM: "mlx-community/whisper-medium",
-        ModelName.LARGE_V3: "mlx-community/whisper-large-v3",
+        ModelName.LARGE_V3: "mlx-community/whisper-large-v3-turbo",
     }
     REQUIRED_MODEL_FILES: tuple[str, ...] = (
         "config.json",
@@ -115,7 +115,6 @@ class MlxWhisperBackend(TranscriptionBackend):
             snapshot_download(
                 repo_id=repo_id,
                 local_dir=str(local_dir),
-                local_dir_use_symlinks=False,
                 allow_patterns=allow_patterns,
                 token=getattr(settings, "HUGGINGFACE_ACCESS_TOKEN", None)
             )

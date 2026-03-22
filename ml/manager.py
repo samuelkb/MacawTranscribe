@@ -145,8 +145,8 @@ class ModelManager:
         logger.info(
             "Running load_model",
             extra={
-                "backend": backend.value,
-                "model": model.value,
+                "backend": backend.value if backend else None,
+                "model": model.value if model else None,
             }
         )
         selection = self.ensure_model_available(
