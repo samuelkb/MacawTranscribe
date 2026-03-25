@@ -8,6 +8,7 @@ dependencies = [
     "django-environ>=0.13.0",
     "mlx-whisper>=0.4.3",
     "pyannote-audio>=4.0.4",
+    "redis>=7.3.0",
     "torch>=2.10.0",
     "torchaudio>=2.10.0",
 ]

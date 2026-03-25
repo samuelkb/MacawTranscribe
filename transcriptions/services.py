@@ -9,7 +9,7 @@ from django.utils import timezone
 from ml.manager import ModelManager
 from ml.types import BackendName, ModelName
 from recordings.audio import extract_chunk_audio
-from recordings.models import Chunk, ChunkStatus
+from recordings.models import Chunk, ChunkStatus, RecordingStatus
 from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate, Edit
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
@@ -393,6 +393,7 @@ def transcribe_chunk(
             created_candidate = True
 
         _mark_chunk_completed(chunk=chunk)
+        update_recording_completion_status(chunk=chunk)
 
         logger.info(
             "chunk_transcription_completed",
@@ -429,3 +430,17 @@ def transcribe_chunk(
     finally:
         if temp_audio_path is not None:
             temp_audio_path.unlink(missing_ok=True)
+
+def update_recording_completion_status(*, chunk: Chunk) -> None:
+    """
+    Mark the parent recording as completed if all chunks are completed.
+    :param chunk: Chunk identifier.
+    """
+    recording = chunk.recording
+    has_incomplete_chunks = Chunk.objects.filter(recording=recording).exclude(
+        status=ChunkStatus.COMPLETED
+    ).exists()
+
+    if not has_incomplete_chunks:
+        recording.status = RecordingStatus.COMPLETED
+        recording.save(update_fields=["status", "updated_at"])

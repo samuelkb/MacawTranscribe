@@ -345,6 +345,20 @@
                         <button id="btn-step-7">Run Step 7</button>
                     </div>
                 </div>
+
+                <div class="card">
+                    <div id="status-full-text" class="status">Idle</div>
+                    <h2>Get Full Transcription </h2>
+                    <p>Fetches the assembled full transcript for a recording and renders speaker and pause segments in a readable format.</p>
+
+                    <label for="recording-id-input">Recording ID</label>
+                    <input id="recording-id-input" type="text" placeholder="Paste recording UUID" style="width: 100%; margin-bottom: 8px;"/>
+
+
+                    <div class="button-row">
+                        <button id="btn-step-9">Get completed transcription</button>
+                    </div>
+                </div>
             </div>
 
             <div class="card">
@@ -367,6 +381,22 @@
                 <h2>Response</h2>
                 <pre id="response-box">No requests yet.</pre>
             </div>
+            <div id="full-transcript-meta" class="help" style="margin-top: 12px;"></div>
+
+            <div
+    id="full-text-output"
+    style="
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 12px;
+      background: #020617;
+      border: 1px solid var(--border);
+      min-height: 200px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    "
+  ></div>
         </div>
     </div>
 </div>
@@ -390,6 +420,7 @@
         step4: document.getElementById("status-step-4"),
         step5: document.getElementById("status-step-5"),
         step7: document.getElementById("status-step-7"),
+        step9: document.getElementById("status-step-9"),
         full: document.getElementById("status-full-pipeline"),
     };
 
@@ -400,8 +431,52 @@
         step4: document.getElementById("btn-step-4"),
         step5: document.getElementById("btn-step-5"),
         step7: document.getElementById("btn-step-7"),
+        step9: document.getElementById("btn-step-9"),
         full: document.getElementById("btn-full-pipeline"),
     };
+
+    async function loadFullTranscript() {
+        const recordingId = requireRecordingId();
+        const statusEl = document.getElementById("status-full-text");
+        const container = document.getElementById("full-text-output");
+        const meta = document.getElementById("status-full-text");
+
+        if (!recordingId) {
+            statusEl.className = "status error";
+            statusEl.textContent = "Failed";
+            container.innerHTML = `<div style="color:#fecaca;">Please provide a recording id.</div>`;
+            meta.textContent = "";
+            return;
+        }
+
+        statusEl.className = "status running";
+        statusEl.textContent = "Loading...";
+        container.innerHTML = `<div style="color: var(--muted);">Fetching assembled transcript...</div>`;
+        meta.textContent = "";
+
+        try {
+            const response = await fetch(`/transcriptions/recordings/${recordingId}/full-transcript`, {
+                method: "GET"
+            });
+
+            const payload = await response.json();
+
+            if (!response.ok) {
+                statusEl.className = "status error";
+                statusEl.textContent = "Failed";
+                container.textContent = JSON.stringify(payload, null, 2)
+                return;
+            }
+
+            container.textContent = payload.full_text || "(empty transcript)"
+            statusEl.className = "status success";
+            statusEl.textContent = "Loaded";
+        } catch (error) {
+            statusEl.className = "status error";
+            statusEl.textContent = "Failed";
+            container.innerHTML = `<div style="color:#fecaca;">Request failed: ${escapeHtml(error.message)}</div>`;
+        }
+    }
 
     fileInput.addEventListener("change", () => {
         currentFile.textContent = fileInput.files.length ? fileInput.files[0].name : "None selected";
@@ -476,6 +551,19 @@
                 "Content-Type": "application/json"
             },
             body: JSON.stringify(payload)
+        });
+        return {
+            statusCode: response.status,
+            payload: await parseResponse(response)
+        };
+    }
+
+    async function getJson(url) {
+        const response = await fetch(url, {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/json"
+            }
         });
         return {
             statusCode: response.status,
@@ -623,16 +711,18 @@
         }
     });
 
+    buttons.step9.addEventListener("click", loadFullTranscript);
+
     buttons.full.addEventListener("click", async () => {
         try {
             requireFile();
             setStatus(statusEls.full, "Running...", "running");
-            setResponse("Running Steps 1–4: upload, normalize, diarize, VAD...");
+            setResponse("Running full transcription...");
 
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
-            const { statusCode, payload } = await postMultipart("/pipelines/upload-normalize-diarize-vad-chunk/", formData);
+            const { statusCode, payload } = await postMultipart("/pipelines/transcribe/", formData);
 
             setResponse(payload);
             if (statusCode === 201) {

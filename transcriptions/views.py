@@ -6,9 +6,11 @@ from uuid import UUID
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 
 from ml.types import BackendName, ModelName
+from recordings.models import Recording
+from transcriptions.assembly import assembly_recording_transcript
 from transcriptions.services import transcribe_chunk, ChunkTranscriptionError
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
@@ -110,3 +112,34 @@ def transcribe_chunk_view(request: HttpRequest, chunk_id: UUID) -> JsonResponse:
         },
         status=201,
     )
+
+@csrf_exempt
+@require_GET
+def full_recording_transcription_view(request: HttpRequest, recording_id: UUID) -> JsonResponse:
+    try:
+        recording = Recording.objects.get(id=recording_id)
+    except Recording.DoesNotExist:
+        return JsonResponse(
+            {
+                "error": "recording_not_found",
+                "detail": f"Recording {recording_id} was not found.",
+            },
+            status=404,
+        )
+
+    try:
+        payload = assembly_recording_transcript(recording=recording)
+    except Exception:
+        logger.exception(
+            "full_recording_transcript_failed",
+            extra={"recording_id": str(recording_id)},
+        )
+        return JsonResponse(
+            {
+                "error": "full_recording_transcript_failed",
+                "detail": "Failed to assemble full transcript.",
+            },
+            status=500,
+        )
+
+    return JsonResponse(payload, status=200)
