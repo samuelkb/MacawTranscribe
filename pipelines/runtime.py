@@ -32,7 +32,7 @@ def start_embedded_workers() -> None:
         )
         return
 
-    worker_count = getattr(settings, "PIPELINES_START_EMBEDDED_WORKERS", 1)
+    worker_count = getattr(settings, "PIPELINES_WORKER_COUNT", 1)
     logger.info(
         "embedded_workers_starting",
         extra={"worker_count": worker_count}
