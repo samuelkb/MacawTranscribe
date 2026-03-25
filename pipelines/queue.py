@@ -20,10 +20,26 @@ def get_queue_name() -> str:
     return getattr(settings, "TRANSCRIPTION_QUEUE_NAME", "transcription_jobs")
 
 def get_redis_client() -> Redis:
-    """Get Redis client."""
-    logger.debug("Running get_redis_client")
-    redis_url: str = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
-    return Redis.from_url(redis_url, decode_responses=True)
+    logger.debug("redis_client_initializing")
+
+    client = Redis(
+        host=getattr(settings, "REDIS_HOST", "127.0.0.1"),
+        port=getattr(settings, "REDIS_PORT", 6379),
+        db=getattr(settings, "REDIS_DB", 0),
+        password=getattr(settings, "REDIS_PASSWORD", None),
+        decode_responses=True,
+        socket_timeout=5,
+        socket_connect_timeout=5,
+    )
+
+    try:
+        client.ping()
+        logger.debug("redis_client_connected")
+    except Exception as exc:
+        logger.exception("redis_client_connection_failed")
+        raise
+
+    return client
 
 def enqueue_transcription_job(*, job: TranscriptionJob) -> None:
     """
