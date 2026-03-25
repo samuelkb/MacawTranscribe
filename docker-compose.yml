@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: macaw_postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - macaw_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - macaw_backend
+
+  redis:
+    image: redis:7
+    container_name: macaw_redis
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: >
+      sh -c 'redis-server
+      --appendonly yes
+      --requirepass "$${REDIS_PASSWORD}"'
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - macaw_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", 'redis-cli -a "$${REDIS_PASSWORD}" ping | grep PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - macaw_backend
+
+volumes:
+  macaw_postgres_data:
+  macaw_redis_data:
+
+networks:
+  macaw_backend:
+    driver: bridge

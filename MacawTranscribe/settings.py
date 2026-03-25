@@ -30,10 +30,10 @@ PIPELINES_WORKER_COUNT = 2
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-#0)740k7)1sd@ik3#56h(ka^8iq6fwhjjmij737v2%!##k0tc8'
+SECRET_KEY = env('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env('DJANGO_DEBUG')
 
 ALLOWED_HOSTS = []
 
@@ -89,11 +89,20 @@ WSGI_APPLICATION = 'MacawTranscribe.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': env('POSTGRES_DB'),
+        'USER': env('POSTGRES_USER'),
+        'PASSWORD': env('POSTGRES_PASSWORD'),
+        'HOST': env('POSTGRES_HOST', default='127.0.0.1'),
+        'PORT': env('POSTGRES_PORT', default='5432'),
+        "CONN_MAX_AGE": 60,
     }
 }
 
+REDIS_HOST = env("REDIS_HOST", default="127.0.0.1")
+REDIS_PORT = env.int("REDIS_PORT", default=6379)
+REDIS_DB = env.int("REDIS_DB", default=0)
+REDIS_PASSWORD = env("REDIS_PASSWORD", default=None)
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
