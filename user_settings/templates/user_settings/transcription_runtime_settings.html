@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Runtime Settings</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #111827;
+            --panel-soft: #1f2937;
+            --border: #334155;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success-bg: #052e16;
+            --success-border: #166534;
+            --success-text: #bbf7d0;
+            --danger: #ef4444;
+            --input-bg: #0b1220;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #111827 100%);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 860px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: rgba(17, 24, 39, 0.92);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 28px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(8px);
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 1.8rem;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            margin-bottom: 28px;
+            line-height: 1.5;
+        }
+
+        .messages {
+            margin-bottom: 18px;
+        }
+
+        .message {
+            border: 1px solid var(--success-border);
+            background: var(--success-bg);
+            color: var(--success-text);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+
+        .section {
+            margin-bottom: 24px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: rgba(31, 41, 55, 0.5);
+        }
+
+        .section h2 {
+            margin-top: 0;
+            margin-bottom: 14px;
+            font-size: 1.1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .field.full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--input-bg);
+            color: var(--text);
+            outline: none;
+        }
+
+        input[type="checkbox"] {
+            transform: scale(1.15);
+            margin-top: 4px;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 42px;
+        }
+
+        .help {
+            color: var(--muted);
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
+        .errorlist {
+            margin: 0;
+            padding-left: 18px;
+            color: #fecaca;
+            font-size: 0.9rem;
+        }
+
+        details.advanced {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: rgba(31, 41, 55, 0.38);
+            overflow: hidden;
+        }
+
+        details.advanced summary {
+            cursor: pointer;
+            list-style: none;
+            padding: 18px 20px;
+            font-weight: 700;
+            user-select: none;
+            background: rgba(15, 23, 42, 0.65);
+            border-bottom: 1px solid transparent;
+        }
+
+        details.advanced[open] summary {
+            border-bottom-color: var(--border);
+        }
+
+        details.advanced summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .advanced-content {
+            padding: 20px;
+        }
+
+        .actions {
+            margin-top: 28px;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        button {
+            border: none;
+            border-radius: 10px;
+            padding: 12px 18px;
+            font-weight: 700;
+            cursor: pointer;
+            background: var(--accent);
+            color: white;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        .meta {
+            margin-top: 20px;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 720px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <h1>Transcription Runtime Settings</h1>
+        <div class="subtitle">
+            Configure worker supervision, memory guards, and default transcription behavior.
+        </div>
+
+        {% if messages %}
+            <div class="messages">
+                {% for message in messages %}
+                    <div class="message">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div >
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+            <div class="section">
+                <h2>Core Settings</h2>
+                <div class="grid">
+                    <div class="field">
+                        <label> {{ form.supervisor_enabled }} Supervisor enabled</label>
+                        <div class="help">{{ form.supervisor_enabled.help_text }}</div>
+                        {{ form.enabled.errors }}
+                    </div>
+
+                    <div class="field">
+                        <label for="{{ form.desired_worker_count.id_for_label }}">Desired worker count</label>
+                        {{ form.desired_worker_count }}
+                        <div class="help">{{ form.desired_worker_count.help_text }}</div>
+                        {{ form.desired_worker_count.errors }}
+                    </div>
+
+                    <div class="field">
+                        <label for="{{ form.max_worker_count.id_for_label }}">Max worker count</label>
+                        {{ form.max_worker_count }}
+                        <div class="help">{{ form.max_worker_count.help_text }}</div>
+                        {{ form.max_worker_count.errors }}
+                    </div>
+
+                    <div class="field">
+                        <label for="{{ form.max_job_per_worker.id_for_label }}">Max jobs per worker</label>
+                        {{ form.max_job_per_worker }}
+                        <div class="help">{{ form.max_job_per_worker.help_text }}</div>
+                        {{ form.max_job_per_worker.errors }}
+                    </div>
+
+                    <div class="field">
+                        <label for="{{ form.default_backend.id_for_label }}">Default backend</label>
+                        {{ form.default_backend }}
+                        <div class="help">{{ form.default_backend.help_text }}</div>
+                        {{ form.default_backend.errors }}
+                    </div>
+
+                    <div class="field">
+                        <label for="{{ form.default_model.id_for_label }}">Default model</label>
+                        {{ form.default_model }}
+                        <div class="help">{{ form.default_model.help_text }}</div>
+                        {{ form.default_model.errors }}
+                    </div>
+                </div>
+            </div>
+
+            <details class="advanced">
+                <summary>Advanced settings</summary>
+                <div class="advanced-content">
+                    <div class="section">
+                        <h2>Worker Lifecycle</h2>
+                        <div class="grid">
+
+                            <div class="field">
+                                <label for="{{ form.max_idle_seconds.id_for_label }}">Max idle seconds</label>
+                                {{ form.max_idle_seconds }}
+                                <div class="help">{{ form.max_idle_seconds.help_text }}</div>
+                                {{ form.max_idle_seconds.errors }}
+                            </div>
+
+                            <div class="field">
+                                <label for="{{ form.supervisor_poll_seconds.id_for_label }}">Supervisor poll seconds</label>
+                                {{ form.supervisor_poll_seconds }}
+                                <div class="help">{{ form.supervisor_poll_seconds.help_text }}</div>
+                                {{ form.supervisor_poll_seconds.errors }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2>Memory Guards</h2>
+                        <div class="grid">
+                            <div class="field">
+                                <label for="{{ form.guarded_scaling_enabled.id_for_label }}">Guarded scaling enabled</label>
+                                <div class="checkbox-row">{{ form.guarded_scaling_enabled }}</div>
+                                <div class="help">{{ form.guarded_scaling_enabled.help_text }}</div>
+                                {{ form.guarded_scaling_enabled.errors }}
+                            </div>
+
+                            <div class="field">
+                                <label for="{{ form.max_memory_percent.id_for_label }}">Max memory percent</label>
+                                {{ form.max_memory_percent }}
+                                <div class="help">{{ form.max_memory_percent.help_text }}</div>
+                                {{ form.max_memory_percent.errors }}
+                            </div>
+
+                            <div class="field">
+                                <label for="{{ form.min_available_memory_mb.id_for_label }}">Min available memory (MB)</label>
+                                {{ form.min_available_memory_mb }}
+                                <div class="help">{{ form.min_available_memory_mb.help_text }}</div>
+                                {{ form.min_available_memory_mb.errors }}
+                            </div>
+
+                            <div class="field">
+                                <label for="{{ form.estimated_memory_per_worker_mb.id_for_label }}">Estimated memory per worker (MB)</label>
+                                {{ form.estimated_memory_per_worker_mb }}
+                                <div class="help">{{ form.estimated_memory_per_worker_mb.help_text }}</div>
+                                {{ form.estimated_memory_per_worker_mb.errors }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2>CPU Guards</h2>
+                        <div class="grid">
+                            <div class="field">
+                                <label for="{{ form.cpu_guard_enabled.id_for_label }}">CPU guard enabled</label>
+                                <div class="checkbox-row">{{ form.cpu_guard_enabled }}</div>
+                                <div class="help">{{ form.cpu_guard_enabled.help_text }}</div>
+                                {{ form.cpu_guard_enabled.errors }}
+                            </div>
+
+                            <div class="field">
+                                <label for="{{ form.max_cpu_percent.id_for_label }}">Max CPU percent</label>
+                                {{ form.max_cpu_percent }}
+                                <div class="help">{{ form.max_cpu_percent.help_text }}</div>
+                                {{ form.max_cpu_percent.errors }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <div class="actions">
+                <button type="submit">Save settings</button>
+            </div>
+
+            <div class="meta">
+                Last updated: {{ runtime_settings.updated_at }}
+            </div>
+        </form>
+    </div>
+</div>
+</body>
+</html>

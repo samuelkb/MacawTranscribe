@@ -24,7 +24,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 HUGGINGFACE_ACCESS_TOKEN = env('HUGGINGFACE_ACCESS_TOKEN')
 
 PIPELINES_START_EMBEDDED_WORKERS = True
-PIPELINES_WORKER_COUNT = 2
+PIPELINES_WORKER_COUNT = 1
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -50,7 +50,8 @@ INSTALLED_APPS = [
     'recordings',
     'speakers',
     'pipelines',
-    'transcriptions'
+    'transcriptions',
+    'user_settings'
 ]
 
 MIDDLEWARE = [
