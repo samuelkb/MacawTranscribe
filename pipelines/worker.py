@@ -8,12 +8,16 @@ from os import getpid
 from typing import Final
 from uuid import uuid4, UUID
 
+from django.db import close_old_connections, connection
 from django.utils import timezone
 
 from pipelines.queue import dequeue_transcription_job, QueueError
 from pipelines.queue_types import TranscriptionJob
 from recordings.models import Chunk, ChunkStatus
 from transcriptions.services import transcribe_chunk, ChunkTranscriptionError
+from user_settings.models import WorkerRole
+from user_settings.services import increment_jobs_processed, mark_worker_idle, register_worker_process, \
+    heartbeat_worker, mark_worker_stopped, mark_worker_failed
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -95,18 +99,32 @@ class ChunkHeartbeatThread(threading.Thread):
         self._stop_event.set()
 
     def run(self) -> None:
-        while not self._stop_event.is_set():
+        try:
+            close_old_connections()
+
+            while not self._stop_event.is_set():
+                try:
+                    update_chunk_heartbeat(chunk_id=self.chunk_id, worker_id=self.worker_id)
+                except Exception:
+                    logger.exception(
+                        "worker_heartbeat_update_failed",
+                        extra={
+                            "chunk_id": str(self.chunk_id),
+                            "worker_id": str(self.worker_id),
+                        }
+                    )
+                    self._stop_event.wait(self.heartbeat_interval_seconds)
+        finally:
             try:
-                update_chunk_heartbeat(chunk_id=self.chunk_id, worker_id=self.worker_id)
+                connection.close()
             except Exception:
                 logger.exception(
-                    "worker_heartbeat_update_failed",
+                    "worker_heartbeat_connection_close_failed",
                     extra={
                         "chunk_id": str(self.chunk_id),
                         "worker_id": str(self.worker_id),
                     }
                 )
-            self._stop_event.wait(self.heartbeat_interval_seconds)
 
 def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: WorkerConfig) -> None:
     """
@@ -136,9 +154,11 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
             model=job.model,
             worker_id=worker_id,
         )
+        increment_jobs_processed(worker_id=worker_id)
     finally:
         heartbeat_thread.stop()
         heartbeat_thread.join(timeout=2)
+        mark_worker_idle(worker_id=worker_id)
 
     logger.info(
         "worker_job_processing_completed",
@@ -152,8 +172,9 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
 
 def run_worker_loop(
         *,
+        worker_id: str,
         config: WorkerConfig | None = None,
-        stop_event: threading.Event | None = None,
+        stop_event=None
 ) -> None:
     """
     Run the transcription worker loop.
@@ -162,12 +183,12 @@ def run_worker_loop(
     - continuously dequeues jobs from Redis
     - executes `transcribe_chunk(...)`
     - maintains heartbeat updates while processing
+    :param worker_id: Worker identifier.
     :param config: Worker configuration.
     :param stop_event: Event to stop heartbeat processing.
     """
     config = config or WorkerConfig()
     stop_event = stop_event or threading.Event()
-    worker_id = generate_worker_id()
 
     logger.info(
         "worker_loop_processing_started",
@@ -178,51 +199,74 @@ def run_worker_loop(
             "dequeue_timeout_seconds": config.dequeue_timeout_seconds,
         }
     )
-
-    if config.recover_stale_chunks_on_startup:
-        recover_stale_processing_chunks(stale_after_seconds=config.stale_after_seconds)
-
-    while not stop_event.is_set():
-        try:
-            job = dequeue_transcription_job(timeout_seconds=config.dequeue_timeout_seconds)
-        except QueueError:
-            logger.exception(
-                "worker_queue_dequeue_failed",
-                extra={"worker_id": worker_id}
-            )
-            time.sleep(1)
-            continue
-
-        if job is None:
-            continue
-
-        try:
-            process_transcription_job(
-                job=job,
-                worker_id=worker_id,
-                config=config,
-            )
-        except ChunkTranscriptionError:
-            logger.warning(
-                "worker_job_processing_failed",
-                extra={
-                    "chunk_id": str(job.chunk_id),
-                    "backend": job.backend.value,
-                    "model": job.model.value,
-                    "worker_id": worker_id,
-                }
-            )
-        except Exception:
-            logger.exception(
-                "worker_job_processing_unexpected_failure",
-                extra={
-                    "chunk_id": str(job.chunk_id),
-                    "backend": job.backend.value,
-                    "model": job.model.value,
-                    "worker_id": worker_id,
-                }
-            )
-    logger.info(
-        "worker_loop_stopped",
-        extra={"worker_id": worker_id},
+    register_worker_process(
+        worker_id=worker_id,
+        pid=getpid(),
+        role=WorkerRole.TRANSCRIPTION,
+        backend=None,
+        model=None,
+        hostname=socket.gethostname(),
     )
+    mark_worker_idle(worker_id=worker_id)
+
+    try:
+        if config.recover_stale_chunks_on_startup:
+            recover_stale_processing_chunks(stale_after_seconds=config.stale_after_seconds)
+
+        while not stop_event.is_set():
+            close_old_connections()
+            heartbeat_worker(worker_id=worker_id)
+            try:
+                job = dequeue_transcription_job(timeout_seconds=config.dequeue_timeout_seconds)
+            except QueueError:
+                logger.exception(
+                    "worker_queue_dequeue_failed",
+                    extra={"worker_id": worker_id}
+                )
+                time.sleep(1)
+                continue
+
+            if job is None:
+                continue
+
+            try:
+                process_transcription_job(
+                    job=job,
+                    worker_id=worker_id,
+                    config=config,
+                )
+            except ChunkTranscriptionError:
+                logger.warning(
+                    "worker_job_processing_failed",
+                    extra={
+                        "chunk_id": str(job.chunk_id),
+                        "backend": job.backend.value,
+                        "model": job.model.value,
+                        "worker_id": worker_id,
+                    }
+                )
+            except Exception:
+                logger.exception(
+                    "worker_job_processing_unexpected_failure",
+                    extra={
+                        "chunk_id": str(job.chunk_id),
+                        "backend": job.backend.value,
+                        "model": job.model.value,
+                        "worker_id": worker_id,
+                    }
+                )
+        mark_worker_stopped(worker_id=worker_id, exit_reason="stop_event_set")
+        logger.info(
+            "worker_loop_stopped",
+            extra={"worker_id": worker_id},
+        )
+    except Exception as exc:
+        mark_worker_failed(worker_id=worker_id, error_message=str(exc))
+        logger.exception(
+            "worker_loop_fatal_failure",
+            extra={
+                "worker_id": worker_id,
+                "error": str(exc),
+            }
+        )
+        raise

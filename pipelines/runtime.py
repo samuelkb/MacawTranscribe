@@ -11,7 +11,7 @@ logger: Final[logging.Logger] = logging.getLogger(__name__)
 
 _worker_threads_stated = False
 _worker_threads: list[threading.Thread] = []
-
+"""
 def should_start_embedded_workers() -> bool:
     if not getattr(settings, "PIPELINES_START_EMBEDDED_WORKERS", True):
         return False
@@ -54,3 +54,4 @@ def start_embedded_workers() -> None:
 
     _worker_threads_stated = True
     logger.info("embedded_workers_started", extra={"worker_count": worker_count})
+"""
