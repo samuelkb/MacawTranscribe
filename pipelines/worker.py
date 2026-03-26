@@ -14,10 +14,12 @@ from django.utils import timezone
 from pipelines.queue import dequeue_transcription_job, QueueError
 from pipelines.queue_types import TranscriptionJob
 from recordings.models import Chunk, ChunkStatus
-from transcriptions.services import transcribe_chunk, ChunkTranscriptionError
+from transcriptions.services import transcribe_chunk_with_runtime, ChunkTranscriptionError, \
+    load_worker_transcription_runtime
+from transcriptions.runtime import LoadedWorkerRuntime
 from user_settings.models import WorkerRole
 from user_settings.services import increment_jobs_processed, mark_worker_idle, register_worker_process, \
-    heartbeat_worker, mark_worker_stopped, mark_worker_failed
+    heartbeat_worker, mark_worker_stopped, mark_worker_failed, get_default_worker_backend_and_model
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -126,13 +128,19 @@ class ChunkHeartbeatThread(threading.Thread):
                     }
                 )
 
-def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: WorkerConfig) -> None:
+def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: WorkerConfig, runtime: LoadedWorkerRuntime) -> None:
     """
     Process one queued transcription job.
     :param job: Transcription job
     :param worker_id: Worker identifier.
     :param config: Worker configuration.
+    :param runtime: Worker runtime.
     """
+    if job.backend != runtime.backend or job.model != runtime.model:
+        raise ChunkTranscriptionError(
+            f"Worker runtime mismatch: worker loaded {runtime.backend.value}/{runtime.model.value} "
+            f"but dequeued job requires {job.backend.value}/{job.model.value}"
+        )
     logger.info(
         "worker_job_processing_started",
         extra={
@@ -148,10 +156,9 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
     heartbeat_thread.start()
 
     try:
-        transcribe_chunk(
+        transcribe_chunk_with_runtime(
             chunk_id=job.chunk_id,
-            backend=job.backend,
-            model=job.model,
+            runtime=runtime,
             worker_id=worker_id,
         )
         increment_jobs_processed(worker_id=worker_id)
@@ -167,6 +174,7 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
             "backend": job.backend.value,
             "model": job.model.value,
             "worker_id": worker_id,
+            "partition_key": runtime.partition_key,
         }
     )
 
@@ -199,12 +207,23 @@ def run_worker_loop(
             "dequeue_timeout_seconds": config.dequeue_timeout_seconds,
         }
     )
+    backend, model = get_default_worker_backend_and_model()
+    runtime = load_worker_transcription_runtime(backend=backend, model=model)
+    logger.info(
+        "worker_runtime_loaded_at_boot",
+        extra={
+            "worker_id": worker_id,
+            "backend": runtime.backend.value,
+            "model": runtime.model.value,
+            "partition_key": runtime.partition_key,
+        }
+    )
     register_worker_process(
         worker_id=worker_id,
         pid=getpid(),
         role=WorkerRole.TRANSCRIPTION,
-        backend=None,
-        model=None,
+        backend=runtime.backend,
+        model=runtime.model,
         hostname=socket.gethostname(),
     )
     mark_worker_idle(worker_id=worker_id)
@@ -234,6 +253,7 @@ def run_worker_loop(
                     job=job,
                     worker_id=worker_id,
                     config=config,
+                    runtime=runtime,
                 )
             except ChunkTranscriptionError:
                 logger.warning(

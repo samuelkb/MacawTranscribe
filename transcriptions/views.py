@@ -11,7 +11,7 @@ from django.views.decorators.http import require_POST, require_GET
 from ml.types import BackendName, ModelName
 from recordings.models import Recording
 from transcriptions.assembly import assembly_recording_transcript
-from transcriptions.services import transcribe_chunk, ChunkTranscriptionError
+from transcriptions.services import transcribe_chunk_on_demand, ChunkTranscriptionError
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def _parse_model(value: str | None) -> ModelName | None:
 
 @csrf_exempt
 @require_POST
-def transcribe_chunk_view(request: HttpRequest, chunk_id: UUID) -> JsonResponse:
+def transcribe_chunk_on_demand_view(request: HttpRequest, chunk_id: UUID) -> JsonResponse:
     """
     Transcribe one chunk using the configured or requested backend/model
     """
@@ -59,7 +59,7 @@ def transcribe_chunk_view(request: HttpRequest, chunk_id: UUID) -> JsonResponse:
             )
         worker_id = payload.get("worker_id")
     try:
-        transcript = transcribe_chunk(
+        transcript = transcribe_chunk_on_demand(
             chunk_id=chunk_id,
             backend=backend,
             model=model,

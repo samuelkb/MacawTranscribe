@@ -214,3 +214,9 @@ def mark_worker_failed(*, worker_id: str, error_message: str = "") -> None:
         stopped_at=timezone.now(),
         last_heartbeat_at=timezone.now(),
     )
+
+def get_default_worker_backend_and_model() -> tuple[BackendName | None, ModelName | None]:
+    settings = TranscriptionRuntimeSettings.get_solo()
+    backend = BackendName(settings.default_backend) if settings.default_backend else None
+    model = ModelName(settings.default_model) if settings.default_model else None
+    return backend, model

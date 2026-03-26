@@ -1,17 +1,18 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 
-from django.test import TestCase
+from django.test import TestCase, SimpleTestCase
 from django.urls import reverse
 
-from ml.backends.base import TranscribedWord, TranscriptionResult
+from ml.backends.base import TranscribedWord, TranscriptionResult, TranscriptionBackend, LoadedModelHandle
 from ml.types import BackendName, ModelName
 from recordings.models import Recording, RecordingStatus, Chunk, ChunkStatus
 from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate
+from transcriptions.runtime import LoadedWorkerRuntime
 from transcriptions.services import persist_transcription_words, create_initial_transcript, create_transcript_candidate, \
-    apply_candidate, append_edit, transcribe_chunk, ChunkTranscriptionError
+    apply_candidate, append_edit, transcribe_chunk, ChunkTranscriptionError, load_worker_transcription_runtime
 
 
 class TranscriptionServicesTest(TestCase):
@@ -539,3 +540,111 @@ class TranscribeChunkViewTests(TestCase):
 
         output = "\n".join(captured.output)
         self.assertIn("chunk_transcription_endpoint_failed", output)
+
+
+class LoadedWorkerRuntimeTests(SimpleTestCase):
+    def test_partition_key(self) -> None:
+        backend_impl = self._make_backend_stub()
+        loaded_model = self._make_model_stub()
+
+        runtime = LoadedWorkerRuntime(
+            backend=BackendName.MLX_WHISPER,
+            model=ModelName.MEDIUM,
+            backend_impl=backend_impl,
+            loaded_model=loaded_model,
+        )
+
+        self.assertEqual(runtime.partition_key, "mlx-whisper:medium")
+
+    def _make_backend_stub(self) -> TranscriptionBackend:
+        class BackendStub(TranscriptionBackend):
+            @property
+            def name(self) -> BackendName:
+                return BackendName.MLX_WHISPER
+
+            def supports_model(self, *, model: ModelName) -> bool:
+                return True
+
+            def is_model_available(self, *, model: ModelName) -> bool:
+                return True
+
+            def ensure_model_available(self, *, model: ModelName) -> None:
+                return None
+
+            def load_model(self, *, model: ModelName) -> LoadedModelHandle:
+                raise NotImplementedError
+
+            def transcribe(self, *, loaded_model: LoadedModelHandle, audio_path):
+                raise NotImplementedError
+
+        return BackendStub()
+
+    def _make_model_stub(self) -> LoadedModelHandle:
+        class ModelStub(LoadedModelHandle):
+            @property
+            def backend_name(self) -> BackendName:
+                return BackendName.MLX_WHISPER
+
+            @property
+            def model_name(self) -> ModelName:
+                return ModelName.MEDIUM
+
+        return ModelStub()
+
+
+class LoadWorkerTranscriptionRuntimeTests(SimpleTestCase):
+    @patch("transcriptions.services.ModelManager")
+    def test_load_worker_transcription_runtime_returns_loaded_runtime(self, model_manager_cls) -> None:
+        manager = model_manager_cls.return_value
+
+        selection = MagicMock()
+        selection.backend = BackendName.MLX_WHISPER
+        selection.model = ModelName.MEDIUM
+
+        backend_impl = MagicMock()
+        loaded_model = MagicMock()
+
+        manager.load_model.return_value = (selection, backend_impl, loaded_model)
+
+        runtime = load_worker_transcription_runtime(
+            backend=BackendName.MLX_WHISPER,
+            model=ModelName.MEDIUM,
+        )
+
+        manager.load_model.assert_called_once_with(
+            backend=BackendName.MLX_WHISPER,
+            model=ModelName.MEDIUM,
+        )
+
+        self.assertIsInstance(runtime, LoadedWorkerRuntime)
+        self.assertEqual(runtime.backend, BackendName.MLX_WHISPER)
+        self.assertEqual(runtime.model, ModelName.MEDIUM)
+        self.assertIs(runtime.backend_impl, backend_impl)
+        self.assertIs(runtime.loaded_model, loaded_model)
+        self.assertEqual(runtime.partition_key, "mlx-whisper:medium")
+
+    @patch("transcriptions.services.ModelManager")
+    def test_load_worker_transcription_runtime_uses_resolved_selection(self, model_manager_cls) -> None:
+        manager = model_manager_cls.return_value
+
+        selection = MagicMock()
+        selection.backend = BackendName.MLX_WHISPER
+        selection.model = ModelName.LARGE_V3
+
+        backend_impl = MagicMock()
+        loaded_model = MagicMock()
+
+        manager.load_model.return_value = (selection, backend_impl, loaded_model)
+
+        runtime = load_worker_transcription_runtime(
+            backend=None,
+            model=None,
+        )
+
+        manager.load_model.assert_called_once_with(
+            backend=None,
+            model=None,
+        )
+
+        self.assertEqual(runtime.backend, BackendName.MLX_WHISPER)
+        self.assertEqual(runtime.model, ModelName.LARGE_V3)

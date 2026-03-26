@@ -11,6 +11,7 @@ from ml.types import BackendName, ModelName
 from recordings.audio import extract_chunk_audio
 from recordings.models import Chunk, ChunkStatus, RecordingStatus
 from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate, Edit
+from transcriptions.runtime import LoadedWorkerRuntime
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -319,11 +320,10 @@ def _derive_full_text_from_words(words: tuple) -> str:
     logger.info("_derive_full_text_from_words_started")
     return "".join(words.text.strip() for word in words if word.text.strip()).strip()
 
-def transcribe_chunk(
+def transcribe_chunk_with_runtime(
         *,
         chunk_id: UUID,
-        backend: BackendName | None = None,
-        model: ModelName | None = None,
+        runtime: LoadedWorkerRuntime,
         worker_id: str | None = None,
 ) -> Transcript:
     """
@@ -332,15 +332,14 @@ def transcribe_chunk(
     Flow:
     1. Load chunk and recording
     2. Mark chunk as processing
-    3. Resolve and load backend/model
-    4. Extract chunk audio on demand
-    5. Transcribe chunk audio
-    6. Replace TranscriptWord rows
-    7. Create initial Transcript or create a TranscriptCandidate
-    8. Mark chunk completed
+    3. Extract chunk audio on demand
+    4. Transcribe chunk audio using the preloaded runtime
+    5. Replace TranscriptWord rows
+    6. Create initial Transcript or create a TranscriptCandidate
+    7. Mark chunk completed
+    8. Update recording completion status
     :param chunk_id: Chunk identifier.
-    :param backend: Optional transcription backend.
-    :param model: Optional transcription model.
+    :param runtime: Preloaded worker transcription runtime.
     :param worker_id: Optional worker identifier for heartbeat/debugging.
     :return: The current accepted transcript for the chunk.
     :raises Chunk.DoesNotExist: Chunk does not exist.
@@ -356,20 +355,22 @@ def transcribe_chunk(
             "chunk_index": chunk.chunk_index,
             "recording_id": str(chunk.recording.id),
             "worker_id": worker_id,
-            "backend": backend.value if backend else None,
-            "model": model.value if model else None,
+            "backend": runtime.backend.value,
+            "model": runtime.model.value,
+            "partition_key": runtime.partition_key,
         }
     )
 
     _mark_chunk_processing(chunk=chunk, worker_id=worker_id)
 
-    manager = ModelManager()
     temp_audio_path: Path | None = None
 
     try:
-        selection, backend_impl, loaded_model = manager.load_model(backend=backend, model=model)
         temp_audio_path = extract_chunk_audio(chunk=chunk)
-        result = backend_impl.transcribe(loaded_model=loaded_model,audio_path=temp_audio_path)
+        result = runtime.backend_impl.transcribe(
+            loaded_model=runtime.loaded_model,
+            audio_path=temp_audio_path,
+        )
         model_used_value = result.model_used.value
         persisted_words = persist_transcription_words(chunk=chunk,words=result.words, model_used=model_used_value)
         accepted_text = result.full_text.strip() or _derive_full_text_from_words(result.words)
@@ -401,8 +402,9 @@ def transcribe_chunk(
                 "chunk_id": str(chunk.id),
                 "chunk_index": chunk.chunk_index,
                 "recording_id": str(chunk.recording_id),
-                "backend_used": selection.backend.value,
-                "model_used": selection.model.value,
+                "worker_id": worker_id,
+                "backend_used": runtime.backend.value,
+                "model_used": runtime.model.value,
                 "word_count": len(persisted_words),
                 "created_candidate": created_candidate,
                 "status": chunk.status,
@@ -422,6 +424,8 @@ def transcribe_chunk(
                 "chunk_index": chunk.chunk_index,
                 "recording_id": str(chunk.recording_id),
                 "worker_id": worker_id,
+                "backend_used": runtime.backend.value,
+                "model_used": runtime.model.value,
                 "error": error_message,
             },
         )
@@ -430,6 +434,23 @@ def transcribe_chunk(
     finally:
         if temp_audio_path is not None:
             temp_audio_path.unlink(missing_ok=True)
+
+def transcribe_chunk_on_demand(
+    *,
+    chunk_id: UUID,
+    backend: BackendName | None = None,
+    model: ModelName | None = None,
+    worker_id: str | None = None,
+) -> Transcript:
+    runtime = load_worker_transcription_runtime(
+        backend=backend,
+        model=model,
+    )
+    return transcribe_chunk_with_runtime(
+        chunk_id=chunk_id,
+        runtime=runtime,
+        worker_id=worker_id,
+    )
 
 def update_recording_completion_status(*, chunk: Chunk) -> None:
     """
@@ -444,3 +465,40 @@ def update_recording_completion_status(*, chunk: Chunk) -> None:
     if not has_incomplete_chunks:
         recording.status = RecordingStatus.COMPLETED
         recording.save(update_fields=["status", "updated_at"])
+
+def load_worker_transcription_runtime(*, backend: BackendName | None = None, model: ModelName | None = None) -> LoadedWorkerRuntime:
+    """
+    Load the transcription runtime for a worker process.
+
+    This resolves the effective backend/model selection through ModelManager, loads the model once, and returns a typed
+    runtime object that can be reused across many chunk transcription jobs in the same worker process.
+    :param backend: Optional requested backend
+    :param model: Optional requested model
+    :return: Loaded runtime owned by a single worker process.
+    """
+    logger.info(
+        "worker_transcription_runtime_loading",
+        extra={
+            "backend": backend.value if backend else None,
+            "model": model.value if model else None,
+        }
+    )
+    manager = ModelManager()
+    selection, backend_impl, loaded_model = manager.load_model(backend=backend, model=model)
+    runtime = LoadedWorkerRuntime(
+        backend=selection.backend,
+        model=selection.model,
+        backend_impl=backend_impl,
+        loaded_model=loaded_model,
+    )
+    logger.info(
+        "worker_transcription_runtime_loaded",
+        extra={
+            "backend": runtime.backend.value,
+            "model": runtime.model.value,
+            "partition_key": runtime.partition_key,
+            "backend_impl_class": type(runtime.backend_impl).__name__,
+            "loaded_model_class": type(runtime.loaded_model).__name__,
+        }
+    )
+    return runtime
