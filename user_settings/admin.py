@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from user_settings.models import TranscriptionRuntimeSettings
+from user_settings.models import TranscriptionRuntimeSettings, WorkerProcessState
 
 
 @admin.register(TranscriptionRuntimeSettings)
@@ -70,4 +70,58 @@ class TranscriptionRuntimeSettingsAdmin(admin.ModelAdmin):
         return not TranscriptionRuntimeSettings.objects.exists()
 
     def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(WorkerProcessState)
+class WorkerProcessStateAdmin(admin.ModelAdmin):
+    list_display = (
+        "worker_id",
+        "role",
+        "pid",
+        "status",
+        "backend",
+        "model",
+        "jobs_processed",
+        "current_chunk_id",
+        "last_heartbeat_at",
+        "started_at",
+        "stopped_at",
+    )
+
+    list_filter = (
+        "role",
+        "status",
+        "backend",
+        "model",
+    )
+
+    search_fields = (
+        "worker_id",
+        "pid",
+        "current_chunk_id",
+        "exit_reason",
+        "last_error",
+        "hostname"
+    )
+
+    readonly_fields = (
+        "worker_id",
+        "pid",
+        "role",
+        "backend",
+        "model",
+        "jobs_processed",
+        "current_chunk_id",
+        "exit_reason",
+        "last_error",
+        "hostname",
+        "started_at",
+        "last_heartbeat_at",
+        "stopped_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request) -> bool:
         return False

@@ -3,6 +3,8 @@ from typing import Final
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import CheckConstraint, Q
+from django.utils import timezone
 
 from ml.types import BackendName, ModelName
 
@@ -98,3 +100,53 @@ class TranscriptionRuntimeSettings(models.Model):
             }
         )
         return obj
+
+
+class WorkerRole(models.TextChoices):
+    TRANSCRIPTION = "transcription", "Transcription"
+    DIARIZATION = "diarization", "Diarization"
+
+
+class WorkerStatus(models.TextChoices):
+    STARTING = "starting", "Starting"
+    IDLE = "idle", "Idle"
+    BUSY = "busy", "Busy"
+    STOPPING = "stopping", "Stopping"
+    STOPPED = "stopped", "Stopped"
+    FAILED = "failed", "Failed"
+
+
+class WorkerProcessState(models.Model):
+    worker_id = models.CharField(max_length=128, unique=True, help_text="Stable logical worker identifier assigned by the supervisor.")
+    role = models.CharField(choices=WorkerRole.choices, default=WorkerRole.TRANSCRIPTION, help_text="Worker role handled by this process.")
+    pid = models.PositiveIntegerField(unique=True, help_text="Operating system process ID.")
+    status = models.CharField(choices=WorkerStatus.choices, default=WorkerStatus.STARTING, help_text="Current lifecycle status of the worker process.")
+    backend = models.CharField(choices=[(b.value, b.name) for b in BackendName], blank=True, null=True, help_text="Backend loaded by this worker, when applicable.")
+    model = models.CharField(choices=[(m.value, m.name) for m in ModelName], blank=True, null=True, help_text="Model loaded by this worker, when applicable.")
+    current_chunk_id = models.UUIDField(blank=True, null=True, help_text="Chunk currently being processed by this worker, if any.")
+    jobs_processed = models.PositiveIntegerField(default=0, help_text="Number of jobs completed by this worker process.")
+    exit_reason = models.CharField(max_length=255, blank=True, default="", help_text="Reason recorded when the worker exits of is recycled.")
+    last_error = models.TextField(blank=True, default="", help_text="Most recent error observed for this worker.")
+    hostname = models.CharField(max_length=255, blank=True, default="", help_text="Host machine name running this worker.")
+    started_at = models.DateTimeField(default=timezone.now, help_text="Date and time when this worker started.")
+    last_heartbeat_at = models.DateTimeField(default=timezone.now, help_text="Date and time last heartbeat reported by this worker.")
+    stopped_at = models.DateTimeField(blank=True, null=True, help_text="Date and time when this worker stopped, if applicable.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Worker Process State"
+        verbose_name_plural = "Worker Process States"
+
+        constraints = [
+            CheckConstraint(
+                condition=(
+                        Q(status=WorkerStatus.BUSY, current_chunk_id__isnull=False) |
+                        Q(~Q(status=WorkerStatus.BUSY), current_chunk_id__isnull=True)
+                ),
+                name="busy_chunk_bidirectional"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.worker_id} ({self.status})"
