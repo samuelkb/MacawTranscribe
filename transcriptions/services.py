@@ -1,17 +1,21 @@
 import logging
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 from uuid import UUID
 
-from django.db import transaction
+from django.db import transaction, close_old_connections
 from django.utils import timezone
 
-from ml.manager import ModelManager
 from ml.types import BackendName, ModelName
+from pipelines.chunk_heartbeat import update_chunk_heartbeat
 from recordings.audio import extract_chunk_audio
 from recordings.models import Chunk, ChunkStatus, RecordingStatus
 from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate, Edit
 from transcriptions.runtime import LoadedWorkerRuntime
+from transcriptions.services_runtime import load_worker_transcription_runtime
+from user_settings.services import heartbeat_worker
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -19,6 +23,28 @@ logger: Final[logging.Logger] = logging.getLogger(__name__)
 class ChunkTranscriptionError(RuntimeError):
     """Raised when chunk transcription fails."""
 
+
+def _build_transcription_heartbeat_callback(
+        *,
+        chunk_id: UUID,
+        worker_id: str | None,
+        min_interval_seconds: float = 5.0
+) -> Callable[[], None]:
+    last_sent_at = 0.0
+    def heartbeat() -> None:
+        nonlocal last_sent_at
+        now = time.monotonic()
+        if now - last_sent_at < min_interval_seconds:
+            return
+        last_sent_at = now
+        close_old_connections()
+        try:
+            if worker_id:
+                heartbeat_worker(worker_id=worker_id)
+            update_chunk_heartbeat(chunk_id=chunk_id, worker_id=worker_id)
+        finally:
+            close_old_connections()
+    return heartbeat
 
 def persist_transcription_words(*, chunk: Chunk, words: tuple, model_used: str) -> list[TranscriptWord]:
     """
@@ -367,9 +393,11 @@ def transcribe_chunk_with_runtime(
 
     try:
         temp_audio_path = extract_chunk_audio(chunk=chunk)
+        heartbeat_callback = _build_transcription_heartbeat_callback(chunk_id=chunk_id, worker_id=worker_id)
         result = runtime.backend_impl.transcribe(
             loaded_model=runtime.loaded_model,
             audio_path=temp_audio_path,
+            heartbeat_callback=heartbeat_callback,
         )
         model_used_value = result.model_used.value
         persisted_words = persist_transcription_words(chunk=chunk,words=result.words, model_used=model_used_value)
@@ -466,39 +494,3 @@ def update_recording_completion_status(*, chunk: Chunk) -> None:
         recording.status = RecordingStatus.COMPLETED
         recording.save(update_fields=["status", "updated_at"])
 
-def load_worker_transcription_runtime(*, backend: BackendName | None = None, model: ModelName | None = None) -> LoadedWorkerRuntime:
-    """
-    Load the transcription runtime for a worker process.
-
-    This resolves the effective backend/model selection through ModelManager, loads the model once, and returns a typed
-    runtime object that can be reused across many chunk transcription jobs in the same worker process.
-    :param backend: Optional requested backend
-    :param model: Optional requested model
-    :return: Loaded runtime owned by a single worker process.
-    """
-    logger.info(
-        "worker_transcription_runtime_loading",
-        extra={
-            "backend": backend.value if backend else None,
-            "model": model.value if model else None,
-        }
-    )
-    manager = ModelManager()
-    selection, backend_impl, loaded_model = manager.load_model(backend=backend, model=model)
-    runtime = LoadedWorkerRuntime(
-        backend=selection.backend,
-        model=selection.model,
-        backend_impl=backend_impl,
-        loaded_model=loaded_model,
-    )
-    logger.info(
-        "worker_transcription_runtime_loaded",
-        extra={
-            "backend": runtime.backend.value,
-            "model": runtime.model.value,
-            "partition_key": runtime.partition_key,
-            "backend_impl_class": type(runtime.backend_impl).__name__,
-            "loaded_model_class": type(runtime.loaded_model).__name__,
-        }
-    )
-    return runtime

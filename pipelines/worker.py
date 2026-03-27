@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import timedelta
 from os import getpid
 from typing import Final
-from uuid import uuid4, UUID
+from uuid import uuid4
 
-from django.db import close_old_connections, connection
+from django.db import close_old_connections
 from django.utils import timezone
 
 from pipelines.queue import dequeue_transcription_job, QueueError
@@ -44,17 +44,6 @@ def generate_worker_id() -> str:
     suffix = uuid4().hex[:8]
     return f"{hostname}:{pid}:{suffix}"
 
-def update_chunk_heartbeat(*, chunk_id: UUID, worker_id: str) -> None:
-    """
-    Update the heartbeat for a chunk if it is still actively processing.
-    :param chunk_id: UUID of the chunk to update
-    :param worker_id: Worker identifier.
-    """
-    Chunk.objects.filter(id=chunk_id, status=ChunkStatus.PROCESSING, worker_id=worker_id).update(
-        heartbeat_at=timezone.now(),
-        updated_at=timezone.now(),
-    )
-
 def recover_stale_processing_chunks(*, stale_after_seconds: int) -> int:
     """
     Mark stale processing chunks as failed.
@@ -85,50 +74,6 @@ def recover_stale_processing_chunks(*, stale_after_seconds: int) -> int:
 
     return recovered_count
 
-
-class ChunkHeartbeatThread(threading.Thread):
-    """
-    Background heartbeat updater for one chunk while it is being processed.
-    """
-
-    def __init__(self, *, chunk_id: UUID, worker_id: str, heartbeat_interval_seconds: int) -> None:
-        super().__init__(daemon=True)
-        self.chunk_id = chunk_id
-        self.worker_id = worker_id
-        self.heartbeat_interval_seconds = heartbeat_interval_seconds
-        self._stop_event = threading.Event()
-
-    def stop(self) -> None:
-        self._stop_event.set()
-
-    def run(self) -> None:
-        try:
-            close_old_connections()
-
-            while not self._stop_event.is_set():
-                try:
-                    update_chunk_heartbeat(chunk_id=self.chunk_id, worker_id=self.worker_id)
-                except Exception:
-                    logger.exception(
-                        "worker_heartbeat_update_failed",
-                        extra={
-                            "chunk_id": str(self.chunk_id),
-                            "worker_id": str(self.worker_id),
-                        }
-                    )
-                    self._stop_event.wait(self.heartbeat_interval_seconds)
-        finally:
-            try:
-                connection.close()
-            except Exception:
-                logger.exception(
-                    "worker_heartbeat_connection_close_failed",
-                    extra={
-                        "chunk_id": str(self.chunk_id),
-                        "worker_id": str(self.worker_id),
-                    }
-                )
-
 def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: WorkerConfig, runtime: LoadedWorkerRuntime) -> None:
     """
     Process one queued transcription job.
@@ -152,10 +97,6 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
             "worker_id": worker_id,
         }
     )
-    heartbeat_thread = ChunkHeartbeatThread(
-        chunk_id=job.chunk_id, worker_id=worker_id, heartbeat_interval_seconds=config.heartbeat_interval_seconds
-    )
-    heartbeat_thread.start()
 
     try:
         transcribe_chunk_with_runtime(
@@ -165,8 +106,6 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
         )
         increment_jobs_processed(worker_id=worker_id)
     finally:
-        heartbeat_thread.stop()
-        heartbeat_thread.join(timeout=2)
         mark_worker_idle(worker_id=worker_id)
 
     logger.info(

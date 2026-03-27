@@ -6,7 +6,7 @@ from typing import Final
 from django.conf import settings
 
 from ml.backends.base import LoadedModelHandle, TranscriptionBackend, ModelAvailabilityError, ModelDownloadError, \
-    ModelLoadError, TranscriptionResult, TranscriptionBackendError, TranscribedWord
+    ModelLoadError, TranscriptionResult, TranscriptionBackendError, TranscribedWord, HeartbeatCallback
 from ml.registry import backend_supports_model
 from ml.types import ModelName, BackendName
 
@@ -154,7 +154,10 @@ class MlxWhisperBackend(TranscriptionBackend):
             local_model_dir=local_dir,
         )
 
-    def transcribe(self, *, loaded_model: LoadedModelHandle, audio_path: Path) -> TranscriptionResult:
+    def transcribe(
+            self, *, loaded_model: LoadedModelHandle, audio_path: Path,
+            heartbeat_callback: HeartbeatCallback | None = None
+    ) -> TranscriptionResult:
         raw_path = str(audio_path)
         if not raw_path or not raw_path.strip() or raw_path == ".":
             raise ValueError("audio_path must not be empty")
@@ -178,12 +181,34 @@ class MlxWhisperBackend(TranscriptionBackend):
             },
         )
         try:
+            if heartbeat_callback is not None:
+                logger.debug(
+                    "mlx_whisper_transcription_heartbeat_callback_invoked",
+                    extra={
+                        "backend": self.name.value,
+                        "model": loaded_model.model_name.value,
+                        "audio_path": str(audio_path),
+                        "stage": "before_transcribe",
+                    },
+                )
+                heartbeat_callback()
             logger.info(f"Running mlx_whisper.transcribe on {audio_path}")
             result = mlx_whisper.transcribe(
                 str(audio_path),
                 path_or_hf_repo=str(loaded_model.local_model_dir),
                 word_timestamps=True,
             )
+            if heartbeat_callback is not None:
+                logger.debug(
+                    "mlx_whisper_transcription_heartbeat_callback_invoked",
+                    extra={
+                        "backend": self.name.value,
+                        "model": loaded_model.model_name.value,
+                        "audio_path": str(audio_path),
+                        "stage": "after_transcribe",
+                    },
+                )
+                heartbeat_callback()
         except Exception as exc:
             logger.exception("mlx_whisper.transcribe failed")
             raise TranscriptionBackendError("MLX Whisper transcription failed") from exc

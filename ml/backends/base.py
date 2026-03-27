@@ -1,12 +1,16 @@
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, TypeAlias
 
 from ml.types import ModelName, BackendName
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
+
+
+HeartbeatCallback: TypeAlias = Callable[[], None]
 
 
 class ModelAvailabilityError(RuntimeError):
@@ -119,11 +123,18 @@ class TranscriptionBackend(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def transcribe(self, *, loaded_model: LoadedModelHandle, audio_path: Path) -> TranscriptionResult:
+    def transcribe(
+            self,
+            *,
+            loaded_model: LoadedModelHandle,
+            audio_path: Path,
+            heartbeat_callback: HeartbeatCallback | None = None
+    ) -> TranscriptionResult:
         """
         Transcribe one audio file using a previously loaded model.
         :param loaded_model: A handle returned by ``load_model``.
         :param audio_path: Path to the chunk audio file to transcribe.
+        :param heartbeat_callback: A callback that will be called when a transcription occurs.
         :return: Word-level transcription result.
         :raises ValueError: If the input is invalid.
         :raises FileNotFoundError: If the audio file does not exist.
