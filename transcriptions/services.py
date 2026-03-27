@@ -399,6 +399,7 @@ def transcribe_chunk_with_runtime(
             audio_path=temp_audio_path,
             heartbeat_callback=heartbeat_callback,
         )
+        close_old_connections()
         model_used_value = result.model_used.value
         persisted_words = persist_transcription_words(chunk=chunk,words=result.words, model_used=model_used_value)
         accepted_text = result.full_text.strip() or _derive_full_text_from_words(result.words)
@@ -462,6 +463,7 @@ def transcribe_chunk_with_runtime(
     finally:
         if temp_audio_path is not None:
             temp_audio_path.unlink(missing_ok=True)
+        close_old_connections()
 
 def transcribe_chunk_on_demand(
     *,

@@ -87,6 +87,7 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
             f"Worker runtime mismatch: worker loaded {runtime.backend.value}/{runtime.model.value} "
             f"but dequeued job requires {job.backend.value}/{job.model.value}"
         )
+    close_old_connections()
     mark_worker_busy(worker_id=worker_id, chunk_id=job.chunk_id)
     logger.info(
         "worker_job_processing_started",
@@ -107,6 +108,7 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
         increment_jobs_processed(worker_id=worker_id)
     finally:
         mark_worker_idle(worker_id=worker_id)
+        close_old_connections()
 
     logger.info(
         "worker_job_processing_completed",
@@ -196,10 +198,12 @@ def run_worker_loop(
                     "worker_queue_dequeue_failed",
                     extra={"worker_id": worker_id}
                 )
+                close_old_connections()
                 time.sleep(1)
                 continue
 
             if job is None:
+                close_old_connections()
                 continue
 
             try:
@@ -251,6 +255,7 @@ def run_worker_loop(
         )
     except Exception as exc:
         mark_worker_failed(worker_id=worker_id, error_message=str(exc))
+        close_old_connections()
         logger.exception(
             "worker_loop_fatal_failure",
             extra={
@@ -259,3 +264,5 @@ def run_worker_loop(
             }
         )
         raise
+    finally:
+        close_old_connections()

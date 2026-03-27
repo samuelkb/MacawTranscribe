@@ -78,9 +78,12 @@ class WorkerSupervisor:
                 settings = TranscriptionRuntimeSettings.get_solo()
                 self._reap_dead_workers()
                 self._reconcile(settings=settings)
+                close_old_connections()
                 time.sleep(settings.supervisor_poll_seconds)
         finally:
+            close_old_connections()
             self._shutdown_all_workers()
+            close_old_connections()
             logger.info("worker_supervisor_stopped")
 
     def _reconcile(self, *, settings: TranscriptionRuntimeSettings) -> None:
