@@ -28,3 +28,12 @@ class TranscriptionJob:
             backend=BackendName(payload["backend"]),
             model=ModelName(payload["model"]),
         )
+
+@dataclass(frozen=True)
+class DiarizationJob:
+    """
+    Job payload for recording diarization
+    """
+    recording_id: UUID
+    diarization_backend: str
+    diarization_model: str

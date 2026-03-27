@@ -22,6 +22,9 @@ class ManagedWorker:
     process: multiprocessing.Process
     stop_event: MpEvent
     started_at: float
+    job_family: str
+    partition_key: str
+    queue_name: str
 
 
 def _worker_entrypoint(*, worker_id: str, stop_event: MpEvent, config_dict: dict) -> None:
@@ -117,6 +120,14 @@ class WorkerSupervisor:
 
     def _spawn_worker(self) -> None:
         from pipelines.worker import WorkerConfig
+        from user_settings.services import get_default_worker_backend_and_model
+        from pipelines.queue_names import build_transcription_partition_key, build_transcription_queue_name
+
+        backend, model = get_default_worker_backend_and_model()
+        if backend is None or model is None:
+            raise RuntimeError("Default transcription backend/model must be configured before spawning workers.")
+        partition_key = build_transcription_partition_key(backend=backend, model=model)
+        queue_name = build_transcription_queue_name(backend=backend, model=model)
         worker_id = f"{socket.gethostname()}:{uuid4().hex[:12]}"
         stop_event = multiprocessing.Event()
         config = WorkerConfig()
@@ -142,12 +153,18 @@ class WorkerSupervisor:
             process=process,
             stop_event=stop_event,
             started_at=time.time(),
+            job_family="transcription",
+            partition_key=partition_key,
+            queue_name=queue_name,
         )
         logger.info(
             "worker_supervisor_spawned_worker",
             extra={
                 "worker_id": worker_id,
                 "pid": process.pid,
+                "job_family": "transcription",
+                "partition_key": partition_key,
+                "queue_name": queue_name,
             }
         )
 

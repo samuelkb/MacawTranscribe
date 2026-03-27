@@ -12,6 +12,7 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from pipelines.queue import dequeue_transcription_job, QueueError
+from pipelines.queue_names import build_transcription_queue_name
 from pipelines.queue_types import TranscriptionJob
 from recordings.models import Chunk, ChunkStatus
 from transcriptions.services import transcribe_chunk_with_runtime, ChunkTranscriptionError, \
@@ -164,6 +165,7 @@ def run_worker_loop(
     )
     backend, model = get_default_worker_backend_and_model()
     runtime = load_worker_transcription_runtime(backend=backend, model=model)
+    queue_name = build_transcription_queue_name(backend=backend, model=model)
     logger.info(
         "worker_runtime_loaded_at_boot",
         extra={
@@ -171,6 +173,7 @@ def run_worker_loop(
             "backend": runtime.backend.value,
             "model": runtime.model.value,
             "partition_key": runtime.partition_key,
+            "queue_name": queue_name
         }
     )
     register_worker_process(
@@ -192,7 +195,7 @@ def run_worker_loop(
             close_old_connections()
             heartbeat_worker(worker_id=worker_id)
             try:
-                job = dequeue_transcription_job(timeout_seconds=config.dequeue_timeout_seconds)
+                job = dequeue_transcription_job(backend=runtime.backend, model=runtime.model, timeout_seconds=config.dequeue_timeout_seconds)
             except QueueError:
                 logger.exception(
                     "worker_queue_dequeue_failed",
