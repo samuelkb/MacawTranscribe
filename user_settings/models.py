@@ -130,6 +130,7 @@ class WorkerProcessState(models.Model):
     hostname = models.CharField(max_length=255, blank=True, default="", help_text="Host machine name running this worker.")
     started_at = models.DateTimeField(default=timezone.now, help_text="Date and time when this worker started.")
     last_heartbeat_at = models.DateTimeField(default=timezone.now, help_text="Date and time last heartbeat reported by this worker.")
+    idle_since = models.DateTimeField(null=True, blank=True,help_text="Date and time when this worker most recently entered the idle state.")
     stopped_at = models.DateTimeField(blank=True, null=True, help_text="Date and time when this worker stopped, if applicable.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

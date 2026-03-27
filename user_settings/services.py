@@ -97,6 +97,7 @@ def register_worker_process(*, worker_id: str, pid: int, role: WorkerRole, backe
             "model": model.value if model else None,
             "hostname": hostname,
             "current_chunk_id": None,
+            "idle_since": None,
             "jobs_processed": 0,
             "exit_reason": "",
             "last_error": "",
@@ -131,6 +132,7 @@ def mark_worker_idle(*, worker_id: str) -> None:
     WorkerProcessState.objects.filter(worker_id=worker_id).update(
         status=WorkerStatus.IDLE,
         current_chunk_id=None,
+        idle_since=timezone.now(),
         last_heartbeat_at=timezone.now(),
     )
 
@@ -147,6 +149,7 @@ def mark_worker_busy(*, worker_id: str, chunk_id: UUID) -> None:
     WorkerProcessState.objects.filter(worker_id=worker_id).update(
         status=WorkerStatus.BUSY,
         current_chunk_id=chunk_id,
+        idle_since=None,
         last_heartbeat_at=timezone.now(),
     )
 

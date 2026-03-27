@@ -85,6 +85,7 @@ class WorkerProcessStateAdmin(admin.ModelAdmin):
         "jobs_processed",
         "current_chunk_id",
         "last_heartbeat_at",
+        "idle_since",
         "started_at",
         "stopped_at",
     )
@@ -118,6 +119,7 @@ class WorkerProcessStateAdmin(admin.ModelAdmin):
         "hostname",
         "started_at",
         "last_heartbeat_at",
+        "idle_since",
         "stopped_at",
         "created_at",
         "updated_at",

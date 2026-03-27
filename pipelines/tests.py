@@ -17,8 +17,11 @@ from pipelines.queue_types import TranscriptionJob
 from pipelines.services import upload_and_normalize_recording, upload_normalize_and_diarize_recording, \
     upload_normalize_diarize_and_vad_recording, upload_normalize_diarize_vad_and_chunk_recording, queue_jobs
 from pipelines.worker import generate_worker_id, update_chunk_heartbeat, recover_stale_processing_chunks, \
-    run_worker_loop, WorkerConfig
+    run_worker_loop, WorkerConfig, process_transcription_job, _should_recycle_worker_after_job
 from recordings.models import RecordingStatus, Recording, Chunk, ChunkStatus
+from transcriptions.runtime import LoadedWorkerRuntime
+from user_settings.models import WorkerProcessState, WorkerRole, WorkerStatus, TranscriptionRuntimeSettings
+from user_settings.services import register_worker_process
 
 
 class TranscriptionJobTests(SimpleTestCase):
@@ -1061,6 +1064,72 @@ class WorkerHelpersTests(TestCase):
         self.assertEqual(stale_chunk.worker_id, "")
 
         self.assertEqual(fresh_chunk.status, ChunkStatus.PROCESSING)
+
+    @patch("pipelines.worker.increment_jobs_processed")
+    @patch("pipelines.worker.transcribe_chunk_with_runtime")
+    @patch("pipelines.worker.ChunkHeartbeatThread")
+    def test_process_transcription_job_marks_worker_busy_then_idle(
+            self,
+            mock_heartbeat_thread: Mock,
+            mock_transcribe: Mock,
+            mock_increment_jobs_processed: Mock,
+    ) -> None:
+        worker = register_worker_process(
+            worker_id="worker-1",
+            pid=12345,
+            role=WorkerRole.TRANSCRIPTION,
+            backend=BackendName.MLX_WHISPER,
+            model=ModelName.MEDIUM,
+            hostname="host",
+        )
+        runtime = LoadedWorkerRuntime(
+            backend=BackendName.MLX_WHISPER,
+            model=ModelName.MEDIUM,
+            backend_impl=Mock(),
+            loaded_model=Mock(),
+        )
+        job = TranscriptionJob(
+            chunk_id=self.recording.id,
+            backend=BackendName.MLX_WHISPER,
+            model=ModelName.MEDIUM,
+        )
+
+        def transcribe_side_effect(*args, **kwargs):
+            worker_state = WorkerProcessState.objects.get(worker_id=worker.worker_id)
+            self.assertEqual(worker_state.status, WorkerStatus.BUSY)
+            self.assertEqual(worker_state.current_chunk_id, job.chunk_id)
+
+        mock_transcribe.side_effect = transcribe_side_effect
+
+        process_transcription_job(
+            job=job,
+            worker_id=worker.worker_id,
+            config=WorkerConfig(heartbeat_interval_seconds=1),
+            runtime=runtime,
+        )
+
+        worker.refresh_from_db()
+        self.assertEqual(worker.status, WorkerStatus.IDLE)
+        self.assertIsNone(worker.current_chunk_id)
+        mock_increment_jobs_processed.assert_called_once_with(worker_id=worker.worker_id)
+
+    def test_should_recycle_worker_after_job_returns_reason_at_threshold(self) -> None:
+        settings = TranscriptionRuntimeSettings.get_solo()
+        settings.max_job_per_worker = 5
+        settings.save(update_fields=["max_job_per_worker", "updated_at"])
+        worker = register_worker_process(
+            worker_id="worker-threshold",
+            pid=20010,
+            role=WorkerRole.TRANSCRIPTION,
+            backend=BackendName.MLX_WHISPER,
+            model=ModelName.MEDIUM,
+            hostname="host",
+        )
+        WorkerProcessState.objects.filter(worker_id=worker.worker_id).update(jobs_processed=5)
+
+        recycle_reason = _should_recycle_worker_after_job(worker_id=worker.worker_id)
+
+        self.assertEqual(recycle_reason, "max_jobs_per_worker_reached")
 
 
 class WorkerLoopTests(TestCase):

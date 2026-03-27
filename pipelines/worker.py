@@ -17,9 +17,10 @@ from recordings.models import Chunk, ChunkStatus
 from transcriptions.services import transcribe_chunk_with_runtime, ChunkTranscriptionError, \
     load_worker_transcription_runtime
 from transcriptions.runtime import LoadedWorkerRuntime
-from user_settings.models import WorkerRole
-from user_settings.services import increment_jobs_processed, mark_worker_idle, register_worker_process, \
-    heartbeat_worker, mark_worker_stopped, mark_worker_failed, get_default_worker_backend_and_model
+from user_settings.models import WorkerRole, WorkerProcessState, TranscriptionRuntimeSettings
+from user_settings.services import increment_jobs_processed, mark_worker_idle, mark_worker_busy, \
+    register_worker_process, heartbeat_worker, mark_worker_stopped, mark_worker_failed, \
+    mark_worker_stopping, get_default_worker_backend_and_model
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
             f"Worker runtime mismatch: worker loaded {runtime.backend.value}/{runtime.model.value} "
             f"but dequeued job requires {job.backend.value}/{job.model.value}"
         )
+    mark_worker_busy(worker_id=worker_id, chunk_id=job.chunk_id)
     logger.info(
         "worker_job_processing_started",
         extra={
@@ -177,6 +179,18 @@ def process_transcription_job(*, job: TranscriptionJob, worker_id: str, config: 
             "partition_key": runtime.partition_key,
         }
     )
+
+def _should_recycle_worker_after_job(*, worker_id: str) -> str | None:
+    """
+    Decide whether the worker should stop itself after finishing a job.
+    """
+    jobs_processed = WorkerProcessState.objects.filter(worker_id=worker_id).values_list("jobs_processed", flat=True).first()
+    if jobs_processed is None:
+        return None
+    settings = TranscriptionRuntimeSettings.get_solo()
+    if jobs_processed >= settings.max_job_per_worker:
+        return "max_jobs_per_worker_reached"
+    return None
 
 def run_worker_loop(
         *,
@@ -227,6 +241,7 @@ def run_worker_loop(
         hostname=socket.gethostname(),
     )
     mark_worker_idle(worker_id=worker_id)
+    exit_reason = "stop_event_set"
 
     try:
         if config.recover_stale_chunks_on_startup:
@@ -255,6 +270,21 @@ def run_worker_loop(
                     config=config,
                     runtime=runtime,
                 )
+                if stop_event.is_set():
+                    continue
+                recycle_reason = _should_recycle_worker_after_job(worker_id=worker_id)
+                if recycle_reason is not None:
+                    exit_reason = recycle_reason
+                    mark_worker_stopping(worker_id=worker_id, exit_reason=recycle_reason)
+                    logger.info(
+                        "worker_recycle_requested_after_job_limit",
+                        extra={
+                            "worker_id": worker_id,
+                            "chunk_id": str(job.chunk_id),
+                            "recycle_reason": recycle_reason,
+                        }
+                    )
+                    break
             except ChunkTranscriptionError:
                 logger.warning(
                     "worker_job_processing_failed",
@@ -275,7 +305,7 @@ def run_worker_loop(
                         "worker_id": worker_id,
                     }
                 )
-        mark_worker_stopped(worker_id=worker_id, exit_reason="stop_event_set")
+        mark_worker_stopped(worker_id=worker_id, exit_reason=exit_reason)
         logger.info(
             "worker_loop_stopped",
             extra={"worker_id": worker_id},

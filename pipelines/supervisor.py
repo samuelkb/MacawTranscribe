@@ -4,6 +4,7 @@ import os
 import socket
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from multiprocessing.synchronize import Event as MpEvent
 from typing import Final, TYPE_CHECKING
 from uuid import uuid4
@@ -12,7 +13,8 @@ logger: Final[logging.Logger] = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pipelines.worker import WorkerConfig
-    from user_settings.models import TranscriptionRuntimeSettings
+    from user_settings.models import TranscriptionRuntimeSettings, WorkerProcessState
+
 
 @dataclass
 class ManagedWorker:
@@ -66,11 +68,13 @@ class WorkerSupervisor:
         self._stop_requested = True
 
     def run_forever(self) -> None:
+        from django.db import close_old_connections
         from user_settings.models import TranscriptionRuntimeSettings
         logger.info("worker_supervisor_started")
 
         try:
             while not self._stop_requested:
+                close_old_connections()
                 settings = TranscriptionRuntimeSettings.get_solo()
                 self._reap_dead_workers()
                 self._reconcile(settings=settings)
@@ -85,6 +89,7 @@ class WorkerSupervisor:
             self._scale_down_to_zero()
             return
 
+        self._recycle_eligible_workers(settings=settings)
         target_count = min(settings.desired_worker_count, settings.max_worker_count)
         current_count = len(self._workers)
 
@@ -228,3 +233,57 @@ class WorkerSupervisor:
     def _shutdown_all_workers(self) -> None:
         for worker_id in list(self._workers.keys()):
             self._stop_worker(worker_id=worker_id, reason="supervisor_shutdown")
+
+    def _has_worker_reached_max_jobs(self, *, worker_state: WorkerProcessState, settings: TranscriptionRuntimeSettings) -> bool:
+        return worker_state.jobs_processed >= settings.max_job_per_worker
+
+    def _is_worker_idle_too_long(self, *, worker_state: WorkerProcessState, settings: TranscriptionRuntimeSettings, now) -> bool:
+        if worker_state.idle_since is None:
+            return False
+        idle_cutoff = now - timedelta(seconds=settings.max_idle_seconds)
+        return worker_state.idle_since <= idle_cutoff
+
+    def _get_recyclable_workers(self, *, settings: TranscriptionRuntimeSettings) -> list[tuple[str,str]]:
+        from django.utils import timezone
+        from user_settings.models import WorkerProcessState, WorkerStatus
+        now = timezone.now()
+        worker_states = {
+            state.worker_id: state for state in WorkerProcessState.objects.filter(worker_id__in=self._workers.keys())
+        }
+        recyclable_workers: list[tuple[str, str]] = []
+        for worker_id, managed in self._workers.items():
+            worker_state = worker_states.get(worker_id)
+            if worker_state is None:
+                continue
+            if worker_state.status != WorkerStatus.IDLE or worker_state.current_chunk_id is not None:
+                continue
+            recycle_reason: str | None = None
+            if self._has_worker_reached_max_jobs(worker_state=worker_state, settings=settings):
+                recycle_reason = "max_jobs_per_worker_reached"
+            elif self._is_worker_idle_too_long(worker_state=worker_state, settings=settings, now=now):
+                recycle_reason = "max_idle_seconds_reached"
+            if recycle_reason is not None:
+                logger.info(
+                    "worker_supervisor_worker_marked_for_recycle",
+                    extra={
+                        "worker_id": worker_id,
+                        "pid": managed.process.pid,
+                        "status": worker_state.status,
+                        "jobs_processed": worker_state.jobs_processed,
+                        "idle_since": worker_state.idle_since,
+                        "last_heartbeat_at": worker_state.last_heartbeat_at,
+                        "recycle_reason": recycle_reason,
+                        "max_jobs_per_worker": settings.max_job_per_worker,
+                        "max_idle_seconds": settings.max_idle_seconds,
+                    }
+                )
+                recyclable_workers.append((worker_id, recycle_reason))
+        return recyclable_workers
+
+    def _recycle_eligible_workers(self, *, settings: TranscriptionRuntimeSettings) -> None:
+        recycle_eligible_workers: list[tuple[str, str]] = self._get_recyclable_workers(settings=settings)
+        if not recycle_eligible_workers:
+            return
+        worker_id, reason = recycle_eligible_workers[0]
+        self._stop_worker(worker_id=worker_id, reason=reason)
+
