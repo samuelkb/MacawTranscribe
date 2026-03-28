@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import CheckConstraint, Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy
 
 from ml.types import BackendName, ModelName
 
@@ -15,9 +16,9 @@ class TranscriptionRuntimeSettings(models.Model):
     Singleton model storing runtime control for worker supervision.
     """
     singleton_enforcer = models.BooleanField(default=True, editable=False, unique=True, help_text='Enforce a single RuntimeSettings row.')
-    supervisor_enabled = models.BooleanField(default=True, help_text='Whether the worker supervisor should actively maintain workers.')
-    desired_worker_count = models.PositiveIntegerField(default=2, help_text='Target number of transcription workers the supervisor should try to maintain.')
-    max_worker_count = models.PositiveIntegerField(default=4, help_text='Hard cap for transcription workers, even if desired_worker_count is higher.')
+    supervisor_enabled = models.BooleanField(default=True, help_text=gettext_lazy('Whether the worker supervisor should actively maintain workers.'))
+    desired_worker_count = models.PositiveIntegerField(default=2, help_text=gettext_lazy('Target number of transcription workers the supervisor should try to maintain.'))
+    max_worker_count = models.PositiveIntegerField(default=4, help_text=gettext_lazy('Hard cap for transcription workers, even if desired_worker_count is higher.'))
     max_job_per_worker = models.PositiveIntegerField(default=3, help_text='Recycle a worker process after this many jobs.')
     max_idle_seconds = models.PositiveIntegerField(default=300, help_text='Recycle a worker if it stays idle for this many seconds.')
     supervisor_poll_seconds = models.PositiveIntegerField(default=5, help_text='How often the supervisor reconciles desired vs actual workers.')

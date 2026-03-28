@@ -1,23 +1,23 @@
-{% load static %}
+{% load static i18n %}
+{% get_current_language as CURRENT_LANGUAGE %}
 <!doctype html>
-<html lang="en" class="h-full">
+<html lang="{{ CURRENT_LANGUAGE|default:'en' }}" class="h-full">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <title>{% block title %}Macaw Transcribe{% endblock %}</title>
-    <meta name="description"
-          content="{% block meta_description %}Private, local-first transcription workflow.{% endblock %}">
+  <title>{% block title %}Macaw Transcribe{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Private, local-first transcription workflow.{% endblock %}">
 
-    <link rel="stylesheet" href="{% static 'dist/css/app.css' %}">
+  <link rel="stylesheet" href="{% static 'dist/css/app.css' %}">
 
-    {% block head %}{% endblock %}
+  {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] antialiased{% endblock %}">
-{% block shell %}
+  {% block shell %}
     {% block content %}{% endblock %}
-{% endblock %}
+  {% endblock %}
 
-{% block page_js %}{% endblock %}
+  {% block page_js %}{% endblock %}
 </body>
 </html>

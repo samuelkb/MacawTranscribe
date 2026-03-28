@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 
 urlpatterns = [
+    path('locale/', include("django.conf.urls.i18n")),
     path('admin/', admin.site.urls),
     path("recordings/", include("recordings.urls")),
     path("pipelines/", include("pipelines.urls")),

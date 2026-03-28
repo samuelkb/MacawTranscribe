@@ -13,6 +13,7 @@ import os.path
 from pathlib import Path
 
 import environ
+from django.utils.translation import gettext_lazy
 
 env = environ.Env()
 
@@ -54,15 +55,31 @@ INSTALLED_APPS = [
     'user_settings'
 ]
 
+LOCALE_PATHS = [
+    BASE_DIR / "locale",
+]
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.locale.LocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+LANGUAGES = [
+    ('en', gettext_lazy('English')),
+    ('es', gettext_lazy('Spanish')),
+]
+
+LANGUAGE_COOKIE_NAME = "site_language"
+LANGUAGE_COOKIE_AGE = 60 * 60 * 24 * 365
+LANGUAGE_COOKIE_SECURE = not DEBUG
+LANGUAGE_COOKIE_HTTPONLY  = True
+LANGUAGE_COOKIE_SAMESITE = "Lax"
 
 ROOT_URLCONF = 'MacawTranscribe.urls'
 
