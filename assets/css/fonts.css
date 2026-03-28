@@ -1,0 +1,23 @@
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/static/fonts/source-sans-3/SourceSans3-VariableFont_wght.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caveat";
+  src: url("/static/fonts/caveat/Caveat-VariableFont_wght.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Kalam";
+  src: url("/static/fonts/kalam/Kalam-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}

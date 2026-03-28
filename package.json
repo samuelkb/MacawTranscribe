@@ -1,0 +1,12 @@
+{
+  "name": "macaw-transcribe-frontend",
+  "private": true,
+  "scripts": {
+    "tw:watch": "tailwindcss -i ./assets/css/app.css -o ./static/dist/css/app.css --watch",
+    "tw:build": "tailwindcss -i ./assets/css/app.css -o ./static/dist/css/app.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.2",
+    "tailwindcss": "^4.2.2"
+  }
+}

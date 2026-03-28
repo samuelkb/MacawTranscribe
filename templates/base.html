@@ -1,0 +1,23 @@
+{% load static %}
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>{% block title %}Macaw Transcribe{% endblock %}</title>
+    <meta name="description"
+          content="{% block meta_description %}Private, local-first transcription workflow.{% endblock %}">
+
+    <link rel="stylesheet" href="{% static 'dist/css/app.css' %}">
+
+    {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] antialiased{% endblock %}">
+{% block shell %}
+    {% block content %}{% endblock %}
+{% endblock %}
+
+{% block page_js %}{% endblock %}
+</body>
+</html>

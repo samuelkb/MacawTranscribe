@@ -1,0 +1,10 @@
+@import "./fonts.css";
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./components.css";
+@import "./animations.css";
+
+@theme {
+    --font-sans: "Source Sans 3", "Inter", "Segoe UI", sans-serif;
+    --font-display: "Caveat", "Kalam", cursive;;
+}
