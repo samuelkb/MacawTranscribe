@@ -1,0 +1,97 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-28 05:03+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? "
+"1 : 2;\n"
+#: MacawTranscribe/settings.py:74
+msgid "English"
+msgstr ""
+
+#: MacawTranscribe/settings.py:75
+msgid "Spanish"
+msgstr ""
+
+#: templates/base_test.html:12
+msgid "Language"
+msgstr ""
+
+#: user_settings/forms.py:27
+#: user_settings/templates/user_settings/transcription_runtime_settings.html:240
+msgid "Supervisor enabled"
+msgstr ""
+
+#: user_settings/forms.py:28
+msgid "Desired worker count"
+msgstr ""
+
+#: user_settings/forms.py:29
+msgid "Max worker count"
+msgstr ""
+
+#: user_settings/forms.py:30
+msgid "Max jobs per worker"
+msgstr ""
+
+#: user_settings/forms.py:31
+msgid "Max idle seconds"
+msgstr ""
+
+#: user_settings/forms.py:32
+msgid "Supervisor poll seconds"
+msgstr ""
+
+#: user_settings/forms.py:33
+msgid "Guarded scaling enabled"
+msgstr ""
+
+#: user_settings/forms.py:34
+msgid "Max memory percent per worker"
+msgstr ""
+
+#: user_settings/forms.py:35
+msgid "Min memory per worker in mb"
+msgstr ""
+
+#: user_settings/models.py:19
+msgid "Whether the worker supervisor should actively maintain workers."
+msgstr ""
+
+#: user_settings/models.py:20
+msgid ""
+"Target number of transcription workers the supervisor should try to maintain."
+msgstr ""
+
+#: user_settings/models.py:21
+msgid ""
+"Hard cap for transcription workers, even if desired_worker_count is higher."
+msgstr "Límite estricto para los trabajadores de transcripción, incluso si el recuento_trabajador_deseado es mayor."
+
+#: user_settings/templates/user_settings/transcription_runtime_settings.html:214
+msgid "Transcription Runtime Settings"
+msgstr "Configuración del tiempo de ejecución de la transcripción"
+
+#: user_settings/templates/user_settings/transcription_runtime_settings.html:216
+msgid ""
+"Configure worker supervision, memory guards, and default transcription "
+"behavior."
+msgstr "Configure la supervisión de los trabajadores, los protectores de "
+"memoria y el comportamiento de transcripción predeterminado"
+
+#: user_settings/templates/user_settings/transcription_runtime_settings.html:237
+msgid "Core Settings"
+msgstr "Configuración básica"
