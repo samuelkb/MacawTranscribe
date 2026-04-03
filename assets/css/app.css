@@ -8,6 +8,7 @@
 @source "../speakers";
 @source "../transcriptions";
 @source "../user_settings";
+@source "../recordings";
 
 @theme {
     --font-sans: "Source Sans 3", "Inter", "Segoe UI", sans-serif;
