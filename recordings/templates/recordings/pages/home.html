@@ -1,0 +1,11 @@
+{% extends "layouts/app_shell.html" %}
+{% load i18n %}
+
+{% block title %}Home | Macaw Transcribe{% endblock %}
+{% block meta_description %}Home space{% endblock %}
+
+{% block app_content %}
+  {% include "recordings/partials/home/_hero_upload.html" %}
+  {% include "recordings/partials/home/_resume_work.html" %}
+  {% include "recordings/partials/home/_helpful_info.html" %}
+{% endblock %}
