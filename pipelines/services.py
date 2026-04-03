@@ -151,6 +151,72 @@ class FullPipelineResult:
     warning: str | None = None
 
 
+@dataclass(frozen=True)
+class StartWorkspacePipelineResult:
+    """
+    Result of starting the workspace pipeline orchestration flow.
+    :arg recording: The persisted recording row created during upload ingestion.
+    """
+    recording: Recording
+
+
+def run_workspace_pipeline(*, recording_id: UUID) -> None:
+    """
+    Placeholder for the asynchronous workspace pipeline runner.
+
+    This will be replaced by the background preprocessing execution that:
+    1. normalizes the uploaded recording
+    2. runs diarization
+    3. runs VAD
+    4. creates chunks
+    5. queues transcription jobs
+    :param recording_id: UUID of the recording whose pipeline should run.
+    :return: None
+    """
+    logger.info(
+        "workspace_pipeline_background_start_requested",
+        extra={
+            "recording_id": str(recording_id),
+            "steps": [
+                "normalize_audio",
+                "run_diarization",
+                "run_vad",
+                "create_chunks",
+                "queue_jobs",
+            ],
+        }
+    )
+
+
+def start_workspace_pipeline(*, uploaded_file: UploadedFile) -> StartWorkspacePipelineResult:
+    """
+    Ingest an uploaded recording and trigger the workspace preprocessing pipeline asynchronously.
+
+    The synchronous portion of this workflow is intentionally limited to:
+    1. Persist the original upload
+    2. Create the recording row in the database
+    3. Trigger the background pipeline placeholder
+    :param uploaded_file: Django uploaded file object.
+    :return: StartWorkspacePipelineResult containing the created recording row.
+    :raises ValueError: If the uploaded file is invalid.
+    :raises Exception: Any ingestion error prior to successful recording creation is propagated.
+    """
+    recording = ingest_uploaded_recording(uploaded_file=uploaded_file)
+
+    logger.info(
+        "workspace_pipeline_start_completed",
+        extra={
+            "recording_id": str(recording.id),
+            "status": recording.status,
+            "original_file_name": recording.original_file_name,
+        }
+    )
+
+    run_workspace_pipeline(recording_id=recording.id)
+
+    return StartWorkspacePipelineResult(recording=recording)
+
+
 def upload_and_normalize_recording(*, uploaded_file: UploadedFile) -> UploadAndNormalizeResult:
     """
     Ingest an uploaded recording and then attempt audio normalization. This function orchestrates the firs two stages

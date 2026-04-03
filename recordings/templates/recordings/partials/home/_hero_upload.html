@@ -14,7 +14,7 @@
       </p>
     </div>
 
-    <form action="{% url 'recordings:upload_recording' %}" method="post" enctype="multipart/form-data" class="mx-auto mt-5 max-w-2xl">
+    <form id="hero-upload-form" action="{% url 'pipelines:start_workspace_pipeline' %}" method="post" enctype="multipart/form-data" class="mx-auto mt-5 max-w-2xl">
       {% csrf_token %}
 
       <label for="hero-audio-file" class="group relative flex min-h-38 cursor-pointer flex-col items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-(--color-primary) bg-(--color-surface) px-5 py-5 text-center shadow-(--shadow-sm) transition-colors hover:border-(--color-secondary-hover) hover:bg-(--color-surface-subtle) focus-within:border-(--color-secundary-active) focus-within:ring-4 focus-within:ring-(--color-ring) sm:min-h-42 sm:py-6">
@@ -45,10 +45,10 @@
       </label>
 
       <div class="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
-        <button type="submit" class="button--comfortable inline-flex w-full items-center justify-center rounded-md bg-(--color-primary) px-6 text-(length:--text-button-size) leading-(--text-button-line-height) font-semibold text-white shadow-(--shadow-sm) transition-colors hover:bg-(--color-secondary-hover) focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-(--color-ring) sm:w-auto">
+        <button id="hero-upload-submit" type="submit" class="button--comfortable inline-flex w-full items-center justify-center rounded-md bg-(--color-primary) px-6 text-(length:--text-button-size) leading-(--text-button-line-height) font-semibold text-white shadow-(--shadow-sm) transition-colors hover:bg-(--color-secondary-hover) focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-(--color-ring) sm:w-auto">
           {% translate "Upload audio" %}
         </button>
-        <p class="text-(length:--text-meta-size) text-(--color-text-muted)">
+        <p id="hero-upload-status" class="text-(length:--text-meta-size) text-(--color-text-muted)">
           {% translate "Your recording will be ingested and prepared for transcription." %}
         </p>
       </div>
@@ -58,15 +58,55 @@
 
 <script>
   (() => {
+    const form = document.getElementById("hero-upload-form");
     const input = document.getElementById("hero-audio-file");
     const fileName = document.getElementById("hero-audio-file-name");
+    const submitButton = document.getElementById("hero-upload-submit");
+    const statusText = document.getElementById("hero-upload-status");
 
-    if (!input || !fileName) return;
+    if (!form || !input || !fileName || !submitButton || !statusText) return;
 
     const defaultText = fileName.textContent;
 
     input.addEventListener("change", () => {
       fileName.textContent = input.files?.[0]?.name || defaultText;
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      if (!input.files?.length) {
+        statusText.textContent = "Choose an audio file before continuing.";
+        return;
+      }
+
+      submitButton.disabled = true;
+      statusText.textContent = "Uploading audio and starting workspace...";
+
+      const formData = new FormData(form);
+
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: formData,
+          headers: {
+            "X-CSRFToken": formData.get("csrfmiddlewaretoken"),
+          },
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok) {
+          statusText.textContent = payload.detail || "Failed to start transcription workspace.";
+          submitButton.disabled = false;
+          return;
+        }
+
+        window.location.assign(payload.workspace_url);
+      } catch (error) {
+        statusText.textContent = `Failed to start transcription workspace: ${error.message}`;
+        submitButton.disabled = false;
+      }
     });
   })();
 </script>

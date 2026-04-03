@@ -4,12 +4,13 @@ from uuid import UUID
 
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from pipelines.services import upload_and_normalize_recording, upload_normalize_and_diarize_recording, \
     upload_normalize_diarize_and_vad_recording, upload_normalize_diarize_vad_and_chunk_recording, \
-    start_full_transcription, get_recording_process
+    start_full_transcription, get_recording_process, start_workspace_pipeline
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -343,6 +344,71 @@ def start_full_transcription_view(request: HttpRequest) -> JsonResponse:
         payload["warning"] = result.warning
 
     return JsonResponse(payload, status=201)
+
+
+@require_POST
+def start_workspace_pipeline_view(request: HttpRequest) -> JsonResponse:
+    """
+    Upload a recording and start the workspace pipeline orchestration flow.
+
+    This endpoint ingests the original file synchronously and returns a recording id immediately.
+    The remaining preprocessing stages are delegated to the background pipeline placeholder.
+    :param request:
+    :return: A JSON payload describing the created recording and workspace URLs.
+    """
+    uploaded_file = request.FILES.get("file")
+    if uploaded_file is None:
+        return JsonResponse(
+            {
+                "error": "missing_file",
+                "detail": "Request must include a file field named 'file'",
+            },
+            status=400,
+        )
+
+    try:
+        result = start_workspace_pipeline(uploaded_file=uploaded_file)
+    except ValueError as exc:
+        logger.warning(
+            "workspace_pipeline_upload_rejected",
+            extra={
+                "reason": str(exc),
+            }
+        )
+        return JsonResponse(
+            {
+                "error": "invalid_upload",
+                "detail": str(exc),
+            },
+            status=400,
+        )
+    except Exception:
+        logger.exception(
+            "workspace_pipeline_start_failed",
+            extra={
+                "uploaded_file": getattr(uploaded_file, "name", None),
+            }
+        )
+        return JsonResponse(
+            {
+                "error": "workspace_pipeline_start_failed",
+                "detail": "Workspace pipeline start failed before completion",
+            },
+            status=500,
+        )
+
+    recording = result.recording
+    payload = {
+        "recording_id": str(recording.id),
+        "original_file_name": recording.original_file_name,
+        "duration_milliseconds": recording.duration_milliseconds,
+        "status": recording.status,
+        "original_file_path": recording.original_file_path,
+        "normalized_file_path": recording.normalized_file_path,
+        "workspace_url": reverse("recordings:recording_detail", args=[recording.id]),
+        "progress_url": reverse("pipelines:recording_progress", args=[recording.id]),
+    }
+    return JsonResponse(payload, status=202)
 
 @csrf_exempt
 @require_POST

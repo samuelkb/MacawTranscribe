@@ -4,7 +4,7 @@ from typing import Final
 from uuid import UUID
 
 from django.http import HttpRequest, JsonResponse, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
@@ -156,4 +156,19 @@ def home_view(request: HttpRequest) -> HttpResponse:
         request,
         "recordings/pages/home.html",
         {"resume_recordings": resume_recordings},
+    )
+
+
+def recording_detail_view(request: HttpRequest, recording_id: UUID) -> HttpResponse:
+    """
+    Render the recording workspace page for a specific recording.
+    :param request:
+    :param recording_id: UUID of the recording to display.
+    :return: Workspace page response.
+    """
+    recording = get_object_or_404(Recording, id=recording_id)
+    return render(
+        request,
+        "recordings/pages/recording_detail.html",
+        {"recording": recording},
     )
