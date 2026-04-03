@@ -1,0 +1,180 @@
+{% load i18n %}
+
+<section aria-labelledby="helpful-info-title" class="mt-10 rounded-xl border border-(--color-border) bg-(--color-surface-subtle) p-5 sm:p-6">
+  <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Helpful Info" %}
+      </p>
+      <h2 id="helpful-info-title" class="mt-2 text-(length:--text-h3-size) leading-(--text-h3-line-height) font-semibold text-(--color-text)">
+        {% translate "Quick guidance while you work" %}
+      </h2>
+    </div>
+    <p class="max-w-xl text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+      {% translate "Keep the basics visible, and tuck lower-priority details into a quieter section below." %}
+    </p>
+  </div>
+
+  <div class="mt-5 grid gap-4 lg:grid-cols-3">
+    <article class="rounded-lg border border-(--color-border) bg-(--color-surface) p-5 shadow-(--shadow-sm)">
+      <h3 class="text-(length:--text-h4-size) leading-(--text-h4-line-height) font-semibold text-(--color-text)">
+        {% translate "How it works" %}
+      </h3>
+      <ol class="mt-4 space-y-3 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+        <li class="flex gap-3">
+          <span class="grid size-6 shrink-0 place-items-center rounded-full bg-(--color-primary) text-(length:--text-caption-size) font-semibold text-white">1</span>
+          <span>{% translate "Upload audio" %}</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="grid size-6 shrink-0 place-items-center rounded-full bg-(--color-primary) text-(length:--text-caption-size) font-semibold text-white">2</span>
+          <span>{% translate "Detect speakers" %}</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="grid size-6 shrink-0 place-items-center rounded-full bg-(--color-primary) text-(length:--text-caption-size) font-semibold text-white">3</span>
+          <span>{% translate "Start transcribing chunks and accept or edit inaccuracies" %}</span>
+        </li>
+      </ol>
+    </article>
+
+    <article class="rounded-lg border border-(--color-border) bg-(--color-surface) p-5 shadow-(--shadow-sm)">
+      <h3 class="text-(length:--text-h4-size) leading-(--text-h4-line-height) font-semibold text-(--color-text)">
+        {% translate "Supported formats" %}
+      </h3>
+      <ul class="mt-4 space-y-3 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+        <li class="flex items-start gap-3">
+          <span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-(--color-highlight)"></span>
+          <span>{% translate "MP3" %}</span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-(--color-highlight)"></span>
+          <span>{% translate "WAV" %}</span>
+        </li>
+          <li class="flex items-start gap-3">
+          <span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-(--color-highlight)"></span>
+          <span>{% translate "M4A" %}</span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-(--color-highlight)"></span>
+          <span>{% translate "Long recordings supported with no fixed file-size limit in the interface" %}</span>
+        </li>
+      </ul>
+    </article>
+
+    <article class="rounded-lg border border-(--color-border) bg-(--color-surface) p-5 shadow-(--shadow-sm)">
+      <h3 class="text-(length:--text-h4-size) leading-(--text-h4-line-height) font-semibold text-(--color-text)">
+        {% translate "What happens after upload" %}
+      </h3>
+      <div class="mt-4 rounded-md bg-linear-to-b from-(--color-surface-subtle) to-transparent p-4">
+        <ol class="relative text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+          <span aria-hidden="true" class="absolute bottom-3 left-1/2 top-3 w-px -translate-x-1/2 bg-(--color-border)"></span>
+
+          <li class="relative flex items-center justify-start pr-[46%]">
+            <div class="rounded-full border border-(--color-border) bg-(--color-surface) px-3 py-2 font-medium text-(--color-text) shadow-(--shadow-sm)">
+              {% translate "Prepare audio" %}
+            </div>
+            <span aria-hidden="true" class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-(--color-primary) bg-(--color-surface) shadow-(--shadow-sm)"></span>
+            <span aria-hidden="true" class="absolute right-[calc(50%+0.5rem)] top-1/2 h-px w-8 -translate-y-1/2 bg-(--color-border)"></span>
+          </li>
+
+          <li class="relative -mt-1 flex items-center justify-end pl-[46%]">
+            <div class="rounded-full border border-(--color-border) bg-(--color-surface) px-3 py-2 font-medium text-(--color-text) shadow-(--shadow-sm)">
+              {% translate "Detect speakers" %}
+            </div>
+            <span aria-hidden="true" class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-(--color-highlight) bg-(--color-surface) shadow-(--shadow-sm)"></span>
+            <span aria-hidden="true" class="absolute left-[calc(50%+0.5rem)] top-1/2 h-px w-8 -translate-y-1/2 bg-(--color-border)"></span>
+          </li>
+
+          <li class="relative -mt-1 flex items-center justify-start pr-[46%]">
+            <div class="rounded-full border border-(--color-border) bg-(--color-surface) px-3 py-2 font-medium text-(--color-text) shadow-(--shadow-sm)">
+              {% translate "Find silences" %}
+            </div>
+            <span aria-hidden="true" class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-(--color-secondary) bg-(--color-surface) shadow-(--shadow-sm)"></span>
+            <span aria-hidden="true" class="absolute right-[calc(50%+0.5rem)] top-1/2 h-px w-8 -translate-y-1/2 bg-(--color-border)"></span>
+          </li>
+
+          <li class="relative -mt-1 flex items-center justify-end pl-[46%]">
+            <div class="rounded-full border border-(--color-border) bg-(--color-surface) px-3 py-2 font-medium text-(--color-text) shadow-(--shadow-sm)">
+              {% translate "Transcribe chunks" %}
+            </div>
+            <span aria-hidden="true" class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-(--color-accent) bg-(--color-surface) shadow-(--shadow-sm)"></span>
+            <span aria-hidden="true" class="absolute left-[calc(50%+0.1rem)] top-1/2 h-px w-8 -translate-y-1/2 bg-(--color-border)"></span>
+          </li>
+
+          <li class="relative -mt-1 flex items-center justify-start pr-[46%]">
+            <div class="rounded-full border border-(--color-border) bg-(--color-surface) px-3 py-2 font-medium text-(--color-text) shadow-(--shadow-sm)">
+              {% translate "Review early" %}
+            </div>
+            <span aria-hidden="true" class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-(--color-primary) bg-(--color-surface) shadow-(--shadow-sm)"></span>
+            <span aria-hidden="true" class="absolute right-[calc(50%+0.5rem)] top-1/2 h-px w-8 -translate-y-1/2 bg-(--color-border)"></span>
+          </li>
+
+          <li class="relative -mt-1 flex items-center justify-end pl-[46%]">
+            <div class="rounded-full border border-(--color-border) bg-(--color-surface) px-3 py-2 font-medium text-(--color-text) shadow-(--shadow-sm)">
+              {% translate "Full review" %}
+            </div>
+            <span aria-hidden="true" class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-(--color-highlight) bg-(--color-surface) shadow-(--shadow-sm)"></span>
+            <span aria-hidden="true" class="absolute left-[calc(50%+0.9rem)] top-1/2 h-px w-8 -translate-y-1/2 bg-(--color-border)"></span>
+          </li>
+
+          <li class="relative -mt-1 flex items-center justify-start pr-[46%]">
+            <div class="rounded-full border border-(--color-border) bg-(--color-surface) px-3 py-2 font-medium text-(--color-text) shadow-(--shadow-sm)">
+              {% translate "Export assembled" %}
+            </div>
+            <span aria-hidden="true" class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-(--color-secondary) bg-(--color-surface) shadow-(--shadow-sm)"></span>
+            <span aria-hidden="true" class="absolute right-[calc(50%+0.1rem)] top-1/2 h-px w-8 -translate-y-1/2 bg-(--color-border)"></span>
+          </li>
+        </ol>
+      </div>
+    </article>
+  </div>
+
+  <details class="mt-4 rounded-lg border border-(--color-border) bg-(--color-surface) shadow-(--shadow-sm)">
+    <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-(length:--text-label-size) leading-(--text-label-line-height) font-semibold text-(--color-text)">
+      <span>{% translate "More about exports and help" %}</span>
+      <span class="text-(length:--text-meta-size) font-medium text-(--color-text-muted)">{% translate "Optional details" %}</span>
+    </summary>
+
+    <div class="border-t border-(--color-border) px-5 py-4">
+      <div class="grid gap-4 lg:grid-cols-3">
+        <div>
+          <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+            {% translate "Recent export format" %}
+          </p>
+          <p class="mt-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+            {% translate "Last used: TXT with timestamps off" %}
+          </p>
+        </div>
+
+        <div>
+          <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+            {% translate "Export options" %}
+          </p>
+          <ul class="mt-2 space-y-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+            <li>TXT</li>
+            <li>JSON</li>
+            <li>CSV</li>
+          </ul>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+              {% translate "Docs / Help" %}
+            </p>
+            <p class="mt-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+              {% translate "Open product documentation or help resources when you need more detailed guidance." %}
+            </p>
+          </div>
+          <div>
+            <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+              {% translate "Privacy / Local processing" %}
+            </p>
+            <p class="mt-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+              {% translate "Audio processing stays in your local workflow, internet access is only required to download models." %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </details>
+</section>
