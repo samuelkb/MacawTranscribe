@@ -13,7 +13,7 @@
 
   {% block head %}{% endblock %}
 </head>
-<body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] antialiased{% endblock %}">
+<body class="{% block body_class %}min-h-screen bg-(--color-bg) text-(--color-text){% endblock %}">
   {% block shell %}
     {% block content %}{% endblock %}
   {% endblock %}

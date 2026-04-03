@@ -50,6 +50,15 @@
   --container-max: 1200px;
   --content-max: 760px;
 
+  /* target sizes */
+  --target-min-size: 24px;
+  --target-comfortable-size: 32px;
+  --target-icon-size: 40px;
+  --target-gap-min: 8px;
+
+  /* spacing between small adjacent controls */
+  --target-gap-min: 8px;
+
   /* font weights */
   --font-weight-regular: 400;
   --font-weight-medium: 500;

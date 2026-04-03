@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block shell %}
+  {% include "components/_topbar.html" %}
+
+  <div class="min-h-screen">
+    <main class="mx-auto w-full max-w-(--container-max) px-4 py-6 sm:px-6 lg:px-8">
+      {% include "components/_flash_messages.html" %}
+      {% block app_content %}{% endblock %}
+    </main>
+  </div>
+
+{% endblock %}

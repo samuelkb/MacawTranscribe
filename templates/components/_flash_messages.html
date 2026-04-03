@@ -1,0 +1,9 @@
+{% if messages %}
+  <div class="mb-6 space-y-3">
+    {% for message in messages %}
+      <div class="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-[var(--shadow-sm)]">
+        {{ message }}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
