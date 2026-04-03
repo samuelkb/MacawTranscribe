@@ -17,7 +17,7 @@
     <form action="{% url 'recordings:upload_recording' %}" method="post" enctype="multipart/form-data" class="mx-auto mt-5 max-w-2xl">
       {% csrf_token %}
 
-      <label for="hero-audio-file" class="group relative flex min-h-38 cursor-pointer flex-col items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-(--color-primary) bg-(--color-surface) px-5 py-5 text-center shadow-(--shadow-sm) transition-colors hover:border-(--color-primary-hover) hover:bg-(--color-surface-subtle) focus-within:border-(--color-primary-active) focus-within:ring-4 focus-within:ring-(--color-ring) sm:min-h-[10.5rem] sm:py-6">
+      <label for="hero-audio-file" class="group relative flex min-h-38 cursor-pointer flex-col items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-(--color-primary) bg-(--color-surface) px-5 py-5 text-center shadow-(--shadow-sm) transition-colors hover:border-(--color-secondary-hover) hover:bg-(--color-surface-subtle) focus-within:border-(--color-secundary-active) focus-within:ring-4 focus-within:ring-(--color-ring) sm:min-h-42 sm:py-6">
         <input
           id="hero-audio-file"
           name="file"
@@ -27,7 +27,7 @@
           required
         >
 
-        <span class="grid size-14 place-items-center rounded-full bg-(--color-primary) text-(--color-surface)">
+        <span class="grid size-14 place-items-center rounded-full bg-(--color-secondary) text-(--color-surface)">
           <svg aria-hidden="true" viewBox="0 0 24 24" class="h-8 w-8 fill-none stroke-current stroke-1.75">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V5m0 0-4 4m4-4 4 4M5 16.5V18a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1.5" />
           </svg>
@@ -45,7 +45,7 @@
       </label>
 
       <div class="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
-        <button type="submit" class="button--comfortable inline-flex w-full items-center justify-center rounded-md bg-(--color-primary) px-6 text-(length:--text-button-size) leading-(--text-button-line-height) font-semibold text-white shadow-(--shadow-sm) transition-colors hover:bg-(--color-primary-hover) focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-(--color-ring) sm:w-auto">
+        <button type="submit" class="button--comfortable inline-flex w-full items-center justify-center rounded-md bg-(--color-primary) px-6 text-(length:--text-button-size) leading-(--text-button-line-height) font-semibold text-white shadow-(--shadow-sm) transition-colors hover:bg-(--color-secondary-hover) focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-(--color-ring) sm:w-auto">
           {% translate "Upload audio" %}
         </button>
         <p class="text-(length:--text-meta-size) text-(--color-text-muted)">
