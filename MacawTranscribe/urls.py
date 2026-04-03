@@ -17,6 +17,8 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from recordings.views import home_view
+
 urlpatterns = [
     path('locale/', include("django.conf.urls.i18n")),
     path('admin/', admin.site.urls),
@@ -24,4 +26,5 @@ urlpatterns = [
     path("pipelines/", include("pipelines.urls")),
     path("transcriptions/", include("transcriptions.urls")),
     path("user_settings/", include("user_settings.urls")),
+    path('', home_view, name="home"),
 ]

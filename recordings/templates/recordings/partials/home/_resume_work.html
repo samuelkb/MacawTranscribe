@@ -1,0 +1,90 @@
+{% load i18n %}
+
+{% if resume_recordings %}
+  <section aria-labelledby="resume-work-title" class="mt-8">
+    <div class="flex items-end justify-between gap-4">
+      <div>
+        <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Resume Work" %}
+        </p>
+        <h2 id="resume-work-title" class="mt-2 text-(length:--text-h2-size) leading-(--text-h2-line-height) font-semibold text-(--color-text)">
+          {% translate "Pick up active recordings" %}
+        </h2>
+      </div>
+      <p class="text-(length:--text-meta-size) text-(--color-text-muted)">
+        {% translate "Showing the most last three items still in progress." %}
+      </p>
+    </div>
+
+    <div class="mt-5 grid gap-4 lg:grid-cols-3">
+      {% for recording in resume_recordings|slice:":3" %}
+        <article class="flex h-full flex-col rounded-lg border border-(--color-border) bg-(--color-surface) p-5 shadow-(--shadow-sm)">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              {% if recording.status == "failed" %}
+                <p class="text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-error)">
+                  {% translate "Needs attention" %}
+                </p>
+              {% elif recording.status == "transcribing" %}
+                <p class="text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-primary)">
+                  {% translate "Processing now" %}
+                </p>
+              {% else %}
+                <p class="text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-highlight)">
+                  {% translate "Continue review" %}
+                </p>
+              {% endif %}
+
+              <h3 class="mt-2 text-(length:--text-h4-size) leading-(--text-h4-line-height) font-semibold text-(--color-text)">
+                {{ recording.original_file_name }}
+              </h3>
+            </div>
+            {% if recording.status == "failed" %}
+                <span class="rounded-full bg-(--color-error) px-3 py-1 text-(length:--text-meta-sm-size) font-medium text-white">
+                {{ recording.get_status_display|default:recording.status }}
+                </span>
+            {% else %}
+          <span class="rounded-full bg-(--color-highlight) px-3 py-1 text-(length:--text-meta-sm-size) font-medium text-white">
+                {{ recording.get_status_display|default:recording.status }}
+                </span>
+          {% endif %}
+          </div>
+
+          {% if recording.updated_at %}
+            <p class="mt-3 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+              {% blocktranslate with updated=recording.updated_at|date:"M j, Y g:i A" %}Last updated {{ updated }}{% endblocktranslate %}
+            </p>
+          {% endif %}
+
+          <div class="mt-auto flex items-start justify-between gap-3 pt-4">
+            {% if recording.status == "failed" %}
+              <p class="flex-1 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+                {% translate "This recording needs attention before transcription can continue." %}
+              </p>
+            {% elif recording.status == "transcribing" %}
+              <p class="flex-1 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+                {% translate "Transcription is currently running. Open it to monitor progress." %}
+              </p>
+            {% else %}
+              <p class="flex-1 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+                {% translate "Return to the recording to continue the next step in your workflow." %}
+              </p>
+            {% endif %}
+
+            {% if recording.status != "completed" %}
+              <a href="{{ recording.detail_url }}" class="button--comfortable shrink-0 rounded-md border border-(--color-border) bg-(--color-surface) text-(length:--text-button-size) leading-(--text-button-line-height) font-semibold text-(--color-text) no-underline shadow-(--shadow-sm) transition-colors hover:bg-(--color-surface-subtle)">
+                {% if recording.status == "failed" %}
+                  {% translate "Resolve" %}
+                {% elif recording.status == "transcribing" %}
+                  {% translate "Open" %}
+                {% else %}
+                  {% translate "Continue" %}
+                {% endif %}
+              </a>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}

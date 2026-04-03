@@ -3,11 +3,12 @@ import logging
 from typing import Final
 from uuid import UUID
 
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, JsonResponse, HttpResponse
+from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from recordings.models import Recording
+from recordings.models import Recording, RecordingStatus
 from recordings.services import ingest_uploaded_recording, create_chunks
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
@@ -144,4 +145,15 @@ def create_chunks_view(request: HttpRequest, recording_id: UUID) -> JsonResponse
             "overlap_milliseconds": overlap_milliseconds,
         },
         status=201,
+    )
+
+def home_view(request: HttpRequest) -> HttpResponse:
+    """
+    Returns the list of recordings with status different from COMPLETED.
+    """
+    resume_recordings = Recording.objects.exclude(status=RecordingStatus.COMPLETED).order_by("-updated_at")
+    return render(
+        request,
+        "recordings/pages/home.html",
+        {"resume_recordings": resume_recordings},
     )
