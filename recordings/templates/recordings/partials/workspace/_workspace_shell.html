@@ -1,0 +1,426 @@
+{% load i18n %}
+<section
+  id="workspace-shell"
+  class="pb-[7vh]"
+  aria-label="Recording workspace"
+  style="--workspace-panel-min-height: calc(93vh - 14rem);"
+  data-recording-id="{{ recording.id }}"
+  data-initial-status="{{ recording.status }}"
+  data-snapshot-url="{% url 'pipelines:workspace_state' recording.id %}"
+  data-events-url="{% url 'pipelines:workspace_events' recording.id %}"
+  data-has-normalized="{% if recording.normalized_file_path %}true{% else %}false{% endif %}"
+>
+  <div id="workspace-audio-wrap" class="{% if not recording.normalized_file_path %}hidden {% endif %}sticky z-30 top-28 sm:top-[calc(15vh+1.5rem)]">
+    {% include "recordings/partials/workspace/_audio_player_bar.html" %}
+  </div>
+
+  <div class="mt-6 w-full">
+    <div class="min-w-0 w-full">
+      <div id="workspace-connection-banner" class="mb-4 hidden rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-4 py-3 text-(length:--text-body-sm-size) text-(--color-text-secondary)"></div>
+
+      <div data-phase-panel="preparing" class="block">
+        {% include "recordings/partials/workspace/_phase_preparing.html" %}
+      </div>
+
+      <div data-phase-panel="diarizing" class="hidden">
+        {% include "recordings/partials/workspace/_phase_diarizing.html" %}
+      </div>
+
+      <div data-phase-panel="speakers_ready" class="hidden">
+        {% include "recordings/partials/workspace/_phase_speakers_ready.html" %}
+      </div>
+
+      <div data-phase-panel="chunk_review" class="hidden">
+        {% include "recordings/partials/workspace/_phase_chunk_review.html" %}
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const shell = document.getElementById("workspace-shell");
+    if (!shell) return;
+
+    const audioWrap = document.getElementById("workspace-audio-wrap");
+    const audioStatus = document.getElementById("workspace-audio-status");
+    const audioMeta = document.getElementById("workspace-audio-meta");
+    const preparingCopy = document.getElementById("workspace-preparing-copy");
+    const preparingStep = document.getElementById("workspace-preparing-step");
+    const preparingAlert = document.getElementById("workspace-preparing-alert");
+    const normalizationBadge = document.getElementById("workspace-normalization-badge");
+    const normalizationState = document.getElementById("workspace-normalization-state");
+    const diarizingCopy = document.getElementById("workspace-diarizing-copy");
+    const diarizingStep = document.getElementById("workspace-diarizing-step");
+    const diarizingAlert = document.getElementById("workspace-diarizing-alert");
+    const speakerPreviewEmpty = document.getElementById("workspace-speaker-preview-empty");
+    const speakerPreviewList = document.getElementById("workspace-speaker-preview-list");
+    const speakersReadyCount = document.getElementById("workspace-speakers-ready-count");
+    const speakersReadyEmpty = document.getElementById("workspace-speakers-ready-empty");
+    const speakersReadyList = document.getElementById("workspace-speakers-ready-list");
+    const chunkTotal = document.getElementById("workspace-chunk-total");
+    const chunkStreamEmpty = document.getElementById("workspace-chunk-stream-empty");
+    const chunkStreamList = document.getElementById("workspace-chunk-stream-list");
+    const chunkCardTemplate = document.getElementById("workspace-chunk-card-template");
+    const chunkCountCompleted = document.getElementById("workspace-chunk-count-completed");
+    const chunkCountProcessing = document.getElementById("workspace-chunk-count-processing");
+    const chunkCountQueued = document.getElementById("workspace-chunk-count-queued");
+    const chunkCountPending = document.getElementById("workspace-chunk-count-pending");
+    const chunkCountFailed = document.getElementById("workspace-chunk-count-failed");
+    const connectionBanner = document.getElementById("workspace-connection-banner");
+    const phasePanels = Array.from(shell.querySelectorAll("[data-phase-panel]"));
+
+    const state = {
+      recordingId: shell.dataset.recordingId,
+      recordingStatus: shell.dataset.initialStatus || "uploaded",
+      hasNormalized: shell.dataset.hasNormalized === "true",
+      currentPhase: "preparing",
+      snapshot: null,
+    };
+
+    function formatMilliseconds(durationMilliseconds) {
+      const totalSeconds = Math.max(Math.floor((durationMilliseconds || 0) / 1000), 0);
+      const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+      const seconds = String(totalSeconds % 60).padStart(2, "0");
+      return `${minutes}:${seconds}`;
+    }
+
+    function setPhase(phase) {
+      state.currentPhase = phase;
+      phasePanels.forEach((panel) => {
+        panel.classList.toggle("hidden", panel.dataset.phasePanel !== phase);
+      });
+    }
+
+    function showBanner(message) {
+      if (!connectionBanner) return;
+      connectionBanner.textContent = message;
+      connectionBanner.classList.remove("hidden");
+    }
+
+    function hideBanner() {
+      if (!connectionBanner) return;
+      connectionBanner.classList.add("hidden");
+      connectionBanner.textContent = "";
+    }
+
+    function updateAudioVisibility() {
+      if (!audioWrap || !audioStatus || !audioMeta) return;
+      audioWrap.classList.toggle("hidden", !state.hasNormalized);
+      audioStatus.textContent = state.hasNormalized ? "Normalized audio ready" : "Waiting for normalized audio";
+      audioMeta.textContent = state.hasNormalized
+        ? "The normalized source is available for the workspace. Playback wiring can attach to this bar once a browser-facing audio URL is exposed."
+        : "This bar stays pinned so playback controls can appear immediately after normalization finishes.";
+    }
+
+    function renderPreparing() {
+      if (preparingCopy) {
+        preparingCopy.textContent = state.hasNormalized
+          ? "Normalized audio is ready. The workspace is now waiting for speaker diarization to begin and publish its first progress event."
+          : "The recording has been ingested. The workspace is now waiting for normalized audio so playback and downstream pipeline steps can lock onto a stable source file.";
+      }
+      if (preparingStep) {
+        preparingStep.textContent = state.hasNormalized ? "Preparing the next phase" : "Normalizing audio";
+      }
+      if (preparingAlert) {
+        preparingAlert.textContent = state.hasNormalized
+          ? "The next visible transition is diarization, which is the long-running step in this workspace."
+          : "This phase is usually short. Once normalized audio exists, the pinned audio bar becomes available and the workspace can advance.";
+      }
+      if (normalizationBadge) {
+        normalizationBadge.classList.remove("bg-(--color-primary)", "bg-(--color-border)");
+        normalizationBadge.classList.add(state.hasNormalized ? "bg-(--color-primary)" : "bg-(--color-border)");
+      }
+      if (normalizationState) {
+        normalizationState.textContent = state.hasNormalized
+          ? "Ready. The workspace can expose the audio bar and move forward."
+          : "Pending. The browser is waiting for the working WAV file.";
+      }
+    }
+
+    function renderDiarizing() {
+      if (diarizingCopy) {
+        diarizingCopy.textContent = "This is the long-running phase. The workspace stays here while the pipeline groups voices into speaker identities and prepares the handoff to review.";
+      }
+      if (diarizingStep) {
+        diarizingStep.textContent = "Running diarization on the normalized source";
+      }
+      if (diarizingAlert) {
+        diarizingAlert.textContent = "Stay on this page. The workspace will switch as soon as the pipeline publishes speaker detection events.";
+      }
+    }
+
+    function renderSpeakerPreview(speakerIds) {
+      if (!speakerPreviewEmpty || !speakerPreviewList) return;
+      const uniqueSpeakerIds = [...new Set((speakerIds || []).filter(Boolean))];
+      if (!uniqueSpeakerIds.length) {
+        speakerPreviewList.innerHTML = "";
+        speakerPreviewList.classList.add("hidden");
+        speakerPreviewEmpty.classList.remove("hidden");
+        return;
+      }
+      speakerPreviewEmpty.classList.add("hidden");
+      speakerPreviewList.classList.remove("hidden");
+      speakerPreviewList.innerHTML = uniqueSpeakerIds.map((speakerId) => `
+        <li class="flex items-center justify-between rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-4 py-3">
+          <span class="font-semibold text-(--color-text)">${speakerId}</span>
+          <span class="rounded-full bg-(--color-highlight) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">Detected</span>
+        </li>
+      `).join("");
+    }
+
+    function renderSpeakersReady(speakerIds) {
+      if (!speakersReadyCount || !speakersReadyEmpty || !speakersReadyList) return;
+      const uniqueSpeakerIds = [...new Set((speakerIds || []).filter(Boolean))];
+      speakersReadyCount.textContent = String(uniqueSpeakerIds.length);
+      if (!uniqueSpeakerIds.length) {
+        speakersReadyList.innerHTML = "";
+        speakersReadyList.classList.add("hidden");
+        speakersReadyEmpty.classList.remove("hidden");
+        return;
+      }
+      speakersReadyEmpty.classList.add("hidden");
+      speakersReadyList.classList.remove("hidden");
+      speakersReadyList.innerHTML = uniqueSpeakerIds.map((speakerId, index) => `
+        <li class="rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-4 py-3">
+          <div class="flex items-center justify-between gap-3">
+            <span class="font-semibold text-(--color-text)">${speakerId}</span>
+            <span class="rounded-full bg-(--color-highlight) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">Speaker ${index + 1}</span>
+          </div>
+        </li>
+      `).join("");
+    }
+
+    function buildPlaceholderChunks(totalChunks) {
+      return Array.from({ length: totalChunks }, (_, index) => ({
+        chunk_index: index,
+        start_time: index * 30000,
+        end_time: (index + 1) * 30000,
+        status: "queued",
+        has_transcript: false,
+      }));
+    }
+
+    function renderChunkStream(chunkItems, chunkSummary = {}) {
+      if (!chunkTotal || !chunkStreamEmpty || !chunkStreamList || !chunkCardTemplate) return;
+      const orderedChunks = [...(chunkItems || [])].sort((left, right) => (left.chunk_index ?? 0) - (right.chunk_index ?? 0));
+      chunkTotal.textContent = String(chunkSummary.total ?? orderedChunks.length);
+      if (!orderedChunks.length) {
+        chunkStreamList.innerHTML = "";
+        chunkStreamEmpty.classList.remove("hidden");
+        return;
+      }
+
+      chunkStreamEmpty.classList.add("hidden");
+      chunkStreamList.innerHTML = "";
+
+      orderedChunks.forEach((chunk) => {
+        const cardFragment = chunkCardTemplate.content.cloneNode(true);
+        const cardRoot = cardFragment.querySelector("article");
+        const indexNode = cardFragment.querySelector(".chunk-card-index");
+        const statusNode = cardFragment.querySelector(".chunk-card-status");
+        const rangeNode = cardFragment.querySelector(".chunk-card-range");
+        const copyNode = cardFragment.querySelector(".chunk-card-copy");
+        const transcriptNode = cardFragment.querySelector(".chunk-card-transcript");
+
+        const chunkIndex = Number(chunk.chunk_index ?? 0);
+        const status = String(chunk.status || "pending");
+        const hasTranscript = Boolean(chunk.has_transcript);
+        const acceptedText = String(chunk.accepted_text || "").trim();
+
+        if (indexNode) {
+          indexNode.textContent = `Chunk ${chunkIndex + 1}`;
+        }
+        if (statusNode) {
+          statusNode.textContent = status.replaceAll("_", " ");
+        }
+        if (rangeNode) {
+          rangeNode.textContent = `${formatMilliseconds(chunk.start_time)} - ${formatMilliseconds(chunk.end_time)}`;
+        }
+        if (copyNode) {
+          if (acceptedText) {
+            copyNode.textContent = acceptedText;
+          } else if (status === "completed") {
+            copyNode.textContent = "Transcript ready for review. This chunk completed successfully but has no accepted text in the current snapshot.";
+          } else if (status === "processing") {
+            copyNode.textContent = "Transcription is currently running for this chunk. Keep context here while later chunks continue to queue.";
+          } else if (status === "queued") {
+            copyNode.textContent = "This chunk is already in the worker queue and will update in place when processing starts.";
+          } else if (status === "failed") {
+            copyNode.textContent = "This chunk failed processing and will require retry handling.";
+          } else {
+            copyNode.textContent = "This chunk placeholder is holding the timeline position until processing reaches it.";
+          }
+        }
+        if (transcriptNode) {
+          transcriptNode.textContent = hasTranscript ? "Transcript ready" : "No transcript";
+          transcriptNode.classList.remove("bg-(--color-border)", "bg-(--color-primary)", "bg-(--color-highlight)", "bg-(--color-error)");
+          if (status === "completed") {
+            transcriptNode.classList.add("bg-(--color-primary)");
+          } else if (status === "failed") {
+            transcriptNode.classList.add("bg-(--color-error)");
+          } else {
+            transcriptNode.classList.add("bg-(--color-border)");
+          }
+        }
+        if (cardRoot) {
+          cardRoot.dataset.chunkIndex = String(chunkIndex);
+        }
+        chunkStreamList.appendChild(cardFragment);
+      });
+    }
+
+    function renderChunkReview() {
+      const chunkSummary = state.snapshot?.chunks || {};
+      const chunkItems = chunkSummary.items || [];
+      if (chunkCountCompleted) chunkCountCompleted.textContent = String(chunkSummary.completed || 0);
+      if (chunkCountProcessing) chunkCountProcessing.textContent = String(chunkSummary.processing || 0);
+      if (chunkCountQueued) chunkCountQueued.textContent = String(chunkSummary.queued || 0);
+      if (chunkCountPending) chunkCountPending.textContent = String(chunkSummary.pending || 0);
+      if (chunkCountFailed) chunkCountFailed.textContent = String(chunkSummary.failed || 0);
+      renderChunkStream(chunkItems, chunkSummary);
+    }
+
+    function getRenderablePhase(phase) {
+      if (phase === "preparing" || phase === "diarizing" || phase === "speakers_ready" || phase === "chunk_review") {
+        return phase;
+      }
+      if (phase === "completed") {
+        return "chunk_review";
+      }
+      return "preparing";
+    }
+
+    function render() {
+      updateAudioVisibility();
+      renderPreparing();
+      renderDiarizing();
+      renderSpeakersReady(state.snapshot?.speakers?.items?.map((speaker) => speaker.speaker_id) || []);
+      renderChunkReview();
+      setPhase(getRenderablePhase(state.currentPhase));
+    }
+
+    async function loadWorkspaceSnapshot() {
+      try {
+        const response = await fetch(shell.dataset.snapshotUrl, {
+          method: "GET",
+        });
+        if (!response.ok) return;
+        state.snapshot = await response.json();
+        state.recordingStatus = state.snapshot.recording_status || state.recordingStatus;
+        state.hasNormalized = Boolean(state.snapshot.recording?.has_normalized_audio);
+        state.currentPhase = state.snapshot.workspace_phase || state.currentPhase;
+        const speakerIds = state.snapshot.speakers?.items?.map((speaker) => speaker.speaker_id) || [];
+        renderSpeakerPreview(speakerIds);
+        renderSpeakersReady(speakerIds);
+        render();
+      } catch (error) {
+        showBanner("The workspace could not refresh the initial state snapshot. Live events will keep trying.");
+      }
+    }
+
+    function openEventStream() {
+      const eventSource = new EventSource(shell.dataset.eventsUrl);
+
+      eventSource.onopen = () => {
+        hideBanner();
+      };
+
+      eventSource.addEventListener("pipeline_started", (event) => {
+        const payload = JSON.parse(event.data);
+        state.recordingStatus = payload.recording_status || state.recordingStatus;
+        state.currentPhase = payload.workspace_phase || "preparing";
+        render();
+      });
+
+      eventSource.addEventListener("step_started", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.step === "normalization") {
+          state.currentPhase = "preparing";
+        }
+        if (payload.step === "diarization") {
+          state.currentPhase = "diarizing";
+        }
+        render();
+      });
+
+      eventSource.addEventListener("step_completed", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.recording_status) {
+          state.recordingStatus = payload.recording_status;
+        }
+        if (payload.step === "normalization") {
+          state.hasNormalized = true;
+          state.currentPhase = "preparing";
+        }
+        if (payload.step === "diarization") {
+          state.currentPhase = "diarizing";
+        }
+        render();
+      });
+
+      eventSource.addEventListener("speakers_detected", (event) => {
+        const payload = JSON.parse(event.data);
+        state.recordingStatus = payload.recording_status || state.recordingStatus;
+        state.currentPhase = "speakers_ready";
+        renderSpeakerPreview(payload.speaker_ids || []);
+        renderSpeakersReady(payload.speaker_ids || []);
+        if (diarizingAlert) {
+          diarizingAlert.textContent = `Detected ${payload.speaker_count || 0} speakers. The workspace is moving into the speakers-ready handoff.`;
+        }
+        render();
+      });
+
+      eventSource.addEventListener("chunks_created", (event) => {
+        const payload = JSON.parse(event.data);
+        state.recordingStatus = payload.recording_status || state.recordingStatus;
+        state.currentPhase = "chunk_review";
+        const totalChunks = Number(payload.total_chunks || 0);
+        const existingChunkItems = state.snapshot?.chunks?.items || [];
+        state.snapshot = {
+          ...(state.snapshot || {}),
+          chunks: {
+            ...(state.snapshot?.chunks || {}),
+            total: totalChunks,
+            items: existingChunkItems.length ? existingChunkItems : buildPlaceholderChunks(totalChunks),
+          },
+        };
+        render();
+      });
+
+      eventSource.addEventListener("chunk_progress", (event) => {
+        const payload = JSON.parse(event.data);
+        state.recordingStatus = payload.recording_status || state.recordingStatus;
+        state.currentPhase = "chunk_review";
+        state.snapshot = {
+          ...(state.snapshot || {}),
+          chunks: {
+            ...(state.snapshot?.chunks || {}),
+            total: payload.total_chunks || state.snapshot?.chunks?.total || 0,
+            pending: payload.pending_chunks || 0,
+            queued: payload.queued_chunks || 0,
+            processing: payload.processing_chunks || 0,
+            completed: payload.completed_chunks || 0,
+            failed: payload.failed_chunks || 0,
+            items: state.snapshot?.chunks?.items || buildPlaceholderChunks(payload.total_chunks || 0),
+          },
+        };
+        render();
+      });
+
+      eventSource.addEventListener("pipeline_failed", (event) => {
+        const payload = JSON.parse(event.data);
+        showBanner(payload.message || "The workspace pipeline failed.");
+      });
+
+      eventSource.onerror = () => {
+        showBanner("Live progress connection lost. The browser will keep retrying automatically.");
+      };
+    }
+
+    state.currentPhase = getRenderablePhase(state.currentPhase);
+    render();
+    loadWorkspaceSnapshot();
+    openEventStream();
+  })();
+</script>

@@ -1,0 +1,28 @@
+{% load i18n %}
+<section
+  id="workspace-chunk-stream"
+  class="rounded-2xl border border-(--color-border) bg-(--color-surface-subtle) p-4 shadow-(--shadow-sm)"
+>
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Chunk stream" %}
+      </p>
+      <h3 class="mt-2 text-(length:--text-h4-size) font-semibold text-(--color-text)">
+        {% translate "Ordered cards that update in place" %}
+      </h3>
+    </div>
+    <div class="flex items-center gap-3 text-(length:--text-body-sm-size) text-(--color-text-secondary)">
+      <span>{% translate "Total" %}</span>
+      <span id="workspace-chunk-total" class="rounded-full bg-(--color-surface) px-3 py-1 font-semibold text-(--color-text)">0</span>
+    </div>
+  </div>
+
+  <div id="workspace-chunk-stream-empty" class="mt-5 rounded-xl border border-dashed border-(--color-border) bg-(--color-surface) px-4 py-8 text-center text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+    {% translate "Chunk cards will appear here as soon as chunking finishes and the queue starts moving." %}
+  </div>
+
+  <div id="workspace-chunk-stream-list" class="mt-5 grid gap-4"></div>
+
+  {% include "recordings/partials/workspace/_chunk_card.html" %}
+</section>

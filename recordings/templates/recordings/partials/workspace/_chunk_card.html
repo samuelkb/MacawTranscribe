@@ -1,0 +1,27 @@
+{% load i18n %}
+<template id="workspace-chunk-card-template">
+  <article class="rounded-2xl border border-(--color-border) bg-(--color-surface) px-4 py-4 shadow-(--shadow-sm)">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-3">
+          <p class="chunk-card-index text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-text-muted)">
+            {% translate "Chunk" %}
+          </p>
+          <span class="chunk-card-status rounded-full bg-(--color-surface-subtle) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-(--color-text-secondary)">
+            {% translate "Pending" %}
+          </span>
+        </div>
+        <p class="chunk-card-range mt-3 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)"></p>
+        <p class="chunk-card-copy mt-3 text-(length:--text-body-size) leading-(--text-body-line-height) text-(--color-text)">
+          {% translate "Waiting for transcription output." %}
+        </p>
+      </div>
+
+      <div class="flex shrink-0 items-center gap-3">
+        <span class="chunk-card-transcript rounded-full bg-(--color-border) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">
+          {% translate "No transcript" %}
+        </span>
+      </div>
+    </div>
+  </article>
+</template>

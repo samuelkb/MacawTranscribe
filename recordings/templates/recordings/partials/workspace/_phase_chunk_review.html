@@ -1,0 +1,62 @@
+{% load i18n %}
+<section
+  id="workspace-phase-chunk-review"
+  class="rounded-2xl border border-(--color-border) bg-(--color-surface) p-6 shadow-(--shadow-md)"
+  style="min-height: var(--workspace-panel-min-height);"
+>
+  <div class="grid h-full gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
+    <div class="min-w-0">
+      <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Chunk review" %}
+      </p>
+      <h2 class="mt-3 text-(length:--text-h2-size) leading-(--text-h2-line-height) font-semibold text-(--color-text)">
+        {% translate "Review chunks while transcription keeps running" %}
+      </h2>
+      <p id="workspace-chunk-review-copy" class="mt-4 max-w-3xl text-(length:--text-body-lg-size) leading-(--text-body-lg-line-height) text-(--color-text-secondary)">
+        {% translate "Chunks appear in stable order and update as the worker queue advances. Completed chunks become immediately reviewable while later chunks continue processing in the background." %}
+      </p>
+
+      <div class="mt-6">
+        {% include "recordings/partials/workspace/_chunk_stream.html" %}
+      </div>
+    </div>
+
+    <aside class="rounded-2xl border border-(--color-border) bg-linear-to-br from-(--color-surface-subtle) to-(--color-surface) p-5">
+      <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Live queue state" %}
+      </p>
+
+      <div class="mt-5 space-y-3">
+        <div class="flex items-center justify-between rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3">
+          <span class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">{% translate "Completed" %}</span>
+          <span id="workspace-chunk-count-completed" class="font-semibold text-(--color-text)">0</span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3">
+          <span class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">{% translate "Processing" %}</span>
+          <span id="workspace-chunk-count-processing" class="font-semibold text-(--color-text)">0</span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3">
+          <span class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">{% translate "Queued" %}</span>
+          <span id="workspace-chunk-count-queued" class="font-semibold text-(--color-text)">0</span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3">
+          <span class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">{% translate "Pending" %}</span>
+          <span id="workspace-chunk-count-pending" class="font-semibold text-(--color-text)">0</span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-3">
+          <span class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">{% translate "Failed" %}</span>
+          <span id="workspace-chunk-count-failed" class="font-semibold text-(--color-text)">0</span>
+        </div>
+      </div>
+
+      <div class="mt-6 rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-4">
+        <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Why this view" %}
+        </p>
+        <p id="workspace-chunk-review-alert" class="mt-3 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+          {% translate "The card stream stays stable in chunk order so the user can keep context even while new transcripts arrive." %}
+        </p>
+      </div>
+    </aside>
+  </div>
+</section>
