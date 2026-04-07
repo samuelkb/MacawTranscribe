@@ -1,0 +1,42 @@
+{% load i18n %}
+<header class="sticky top-4 z-40 px-4 sm:top-[calc(8vh+1rem)] sm:px-0">
+  <div class="rounded-md border border-(--color-border) bg-(--color-surface) px-4 py-2 shadow-(--shadow-sm) backdrop-blur-sm sm:h-[7vh] sm:min-h-[7vh] sm:max-h-[7vh] sm:px-5 sm:py-0 lg:px-6">
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(12rem,1fr))] h-full items-center gap-x-5 gap-y-2 sm:gap-y-0" >
+      <div class="min-w-0">
+        <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Recording" %}
+        </p>
+        <h1 class="truncate text-sm font-semibold text-(--color-text) lg:text-base">
+          {{ recording.original_file_name }}
+        </h1>
+      </div>
+
+      <div class="min-w-0">
+        <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Status" %}
+        </p>
+        <p class="inline-flex max-w-max truncate rounded-full bg-(--color-surface-subtle) px-3 py-1 text-sm font-medium text-(--color-text-secondary)">
+          {{ recording.get_status_display|default:recording.status }}
+        </p>
+      </div>
+
+      <div class="min-w-0">
+        <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Duration" %}
+        </p>
+        <p class="tabular-nums text-sm font-medium text-(--color-text-secondary)">
+          {{ formatted_duration }}
+        </p>
+      </div>
+
+      <div class="min-w-0">
+        <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "ID" %}
+        </p>
+        <p class="truncate text-sm font-medium text-(--color-text-secondary)">
+          {{ recording.id }}
+        </p>
+      </div>
+    </div>
+  </div>
+</header>

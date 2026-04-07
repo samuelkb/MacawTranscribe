@@ -5,21 +5,5 @@
 {% block meta_description %}Home space{% endblock %}
 
 {% block app_content %}
-  <section class="mx-auto w-full max-w-(--content-max) py-6 sm:py-8">
-    <div class="rounded-xl border border-(--color-border) bg-(--color-surface) p-5 shadow-(--shadow-md) sm:p-6">
-      <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
-        {% translate "Recording workspace" %}
-      </p>
-      <h1 class="mt-3 text-(length:--text-h2-size) leading-(--text-h2-line-height) font-semibold text-(--color-text)">
-        {{ recording.original_file_name }}
-      </h1>
-      <p class="mt-3 text-(length:--text-body-size) leading-(--text-body-line-height) text-(--color-text-secondary)">
-        {% blocktranslate with status=recording.get_status_display|default:recording.status %}Current recording status: {{ status }}{% endblocktranslate %}
-      </p>
-      <div class="mt-4 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-muted)">
-        <p>{% blocktranslate with recording_id=recording.id %}Recording id: {{ recording_id }}{% endblocktranslate %}</p>
-        <p>{% blocktranslate with duration=recording.duration_milliseconds %}Duration: {{ duration }} ms{% endblocktranslate %}</p>
-      </div>
-    </div>
-  </section>
+  {% include "recordings/partials/_recording_header.html" %}
 {% endblock %}
