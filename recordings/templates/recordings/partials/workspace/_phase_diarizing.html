@@ -1,0 +1,51 @@
+{% load i18n %}
+<section
+  id="workspace-phase-diarizing"
+  class="rounded-2xl border border-(--color-border) bg-(--color-surface) p-6 shadow-(--shadow-md)"
+  style="min-height: var(--workspace-panel-min-height);"
+>
+  <div class="grid h-full gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]">
+    <div class="flex flex-col justify-between">
+      <div>
+        <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Speaker diarization" %}
+        </p>
+        <h2 class="mt-3 text-(length:--text-h2-size) leading-(--text-h2-line-height) font-semibold text-(--color-text)">
+          {% translate "Identifying who is speaking" %}
+        </h2>
+        <p id="workspace-diarizing-copy" class="mt-4 max-w-2xl text-(length:--text-body-lg-size) leading-(--text-body-lg-line-height) text-(--color-text-secondary)">
+          {% translate "This is the long-running phase. The workspace stays here while the pipeline groups voices into speaker identities and prepares the handoff to review." %}
+        </p>
+      </div>
+
+      <div class="mt-8 rounded-2xl border border-(--color-border) bg-(--color-surface-subtle) p-5">
+        <div class="flex items-center gap-4">
+          <div class="grid size-14 shrink-0 place-items-center rounded-full border-4 border-(--color-border) border-t-(--color-primary) animate-spin">
+            <span class="sr-only">{% translate "Processing" %}</span>
+          </div>
+          <div>
+            <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+              {% translate "Live step" %}
+            </p>
+            <p id="workspace-diarizing-step" class="mt-2 text-(length:--text-h4-size) font-semibold text-(--color-text)">
+              {% translate "Running diarization on the normalized source" %}
+            </p>
+            <p id="workspace-diarizing-alert" class="mt-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+              {% translate "Stay on this page. The workspace will switch as soon as the pipeline publishes speaker detection events." %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="rounded-2xl border border-(--color-border) bg-linear-to-br from-(--color-surface-subtle) to-(--color-surface) p-5">
+      <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Detected speakers" %}
+      </p>
+      <div id="workspace-speaker-preview-empty" class="mt-5 rounded-xl border border-dashed border-(--color-border) px-4 py-6 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+        {% translate "Speaker ids will appear here as soon as diarization finishes." %}
+      </div>
+      <ul id="workspace-speaker-preview-list" class="mt-5 hidden space-y-3"></ul>
+    </aside>
+  </div>
+</section>
