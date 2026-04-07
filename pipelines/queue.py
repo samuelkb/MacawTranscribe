@@ -6,8 +6,9 @@ from django.conf import settings
 from redis import Redis
 
 from ml.types import BackendName, ModelName
-from pipelines.queue_names import build_transcription_queue_name, build_transcription_partition_key
-from pipelines.queue_types import TranscriptionJob
+from pipelines.queue_names import build_transcription_queue_name, build_transcription_partition_key, \
+    build_workspace_pipeline_queue_name
+from pipelines.queue_types import TranscriptionJob, WorkspacePipelineJob
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -104,6 +105,61 @@ def dequeue_transcription_job(*, backend: BackendName, model: ModelName, timeout
             "model": job.model.value,
             "partition_key": partition_key,
             "queue_name": queue_name,
+        }
+    )
+    return job
+
+
+def enqueue_workspace_pipeline_job(*, job: WorkspacePipelineJob) -> None:
+    """
+    Push one workspace pipeline job to Redis queue.
+    :param job: workspace pipeline job
+    """
+    logger.debug("Running enqueue_workspace_pipeline_job")
+    client = get_redis_client()
+    queue_name = build_workspace_pipeline_queue_name()
+    try:
+        client.rpush(queue_name, json.dumps(job.to_dict()))
+    except Exception as exc:
+        raise QueueError("Failed to enqueue workspace pipeline job") from exc
+
+    logger.info(
+        "workspace_pipeline_job_enqueued",
+        extra={
+            "queue": queue_name,
+            "recording_id": str(job.recording_id),
+        }
+    )
+
+
+def dequeue_workspace_pipeline_job(*, timeout_seconds: int = 1) -> WorkspacePipelineJob | None:
+    """
+    Pop one workspace pipeline job from the Redis queue.
+    :param timeout_seconds: timeout in seconds
+    :return: A job if available, otherwise None on timeout
+    """
+    logger.debug("Running dequeue_workspace_pipeline_job")
+    client = get_redis_client()
+    queue_name = build_workspace_pipeline_queue_name()
+    try:
+        result = client.blpop(queue_name, timeout=timeout_seconds)
+    except Exception as exc:
+        raise QueueError("Failed to dequeue workspace pipeline job") from exc
+    if result is None:
+        return None
+
+    _, raw_payload = result
+
+    try:
+        payload = json.loads(raw_payload)
+        job: WorkspacePipelineJob = WorkspacePipelineJob.from_dict(payload)
+    except Exception as exc:
+        raise QueueError("invalid workspace pipeline job payload in queue") from exc
+    logger.info(
+        "workspace_pipeline_job_dequeued",
+        extra={
+            "queue": queue_name,
+            "recording_id": str(job.recording_id),
         }
     )
     return job

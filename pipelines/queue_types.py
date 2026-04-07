@@ -37,3 +37,23 @@ class DiarizationJob:
     recording_id: UUID
     diarization_backend: str
     diarization_model: str
+
+
+@dataclass(frozen=True)
+class WorkspacePipelineJob:
+    """
+    Job payload for Workspace pipeline job execution
+    """
+    recording_id: UUID
+
+    def to_dict(self) -> dict[str, str]:
+        payload = asdict(self)
+        return {
+            "recording_id": str(payload["recording_id"]),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, str]) -> "WorkspacePipelineJob":
+        return cls(
+            recording_id=UUID(payload["recording_id"]),
+        )

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from ml.types import BackendName, ModelName
 
 
@@ -26,3 +28,16 @@ def build_diarization_queue_name(*, backend: str, model: str) -> str:
     """
     partition_key = build_diarization_partition_key(backend=backend, model=model)
     return f"diarization_jobs:{partition_key}"
+
+def build_workspace_pipeline_queue_name() -> str:
+    """
+    Build the Redis queue name for workspace pipeline orchestration jobs.
+    """
+    return "workspace_pipeline_jobs"
+
+
+def build_workspace_event_channel_name(*, recording_id: UUID) -> str:
+    """
+    Build the Redis pub/sub channel name for workspace pipeline events.
+    """
+    return f"workspace_events:{recording_id}"
