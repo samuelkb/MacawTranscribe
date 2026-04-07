@@ -43,6 +43,7 @@
     if (!shell) return;
 
     const audioWrap = document.getElementById("workspace-audio-wrap");
+    const audioPlayer = document.getElementById("workspace-audio-player");
     const audioStatus = document.getElementById("workspace-audio-status");
     const audioMeta = document.getElementById("workspace-audio-meta");
     const preparingCopy = document.getElementById("workspace-preparing-copy");
@@ -76,6 +77,7 @@
       hasNormalized: shell.dataset.hasNormalized === "true",
       currentPhase: "preparing",
       snapshot: null,
+      activeChunkEndSeconds: null,
     };
 
     function formatMilliseconds(durationMilliseconds) {
@@ -265,6 +267,9 @@
         }
         if (cardRoot) {
           cardRoot.dataset.chunkIndex = String(chunkIndex);
+          cardRoot.dataset.chunkStart = String(chunk.start_time ?? 0);
+          cardRoot.dataset.chunkEnd = String(chunk.end_time ?? 0);
+          cardRoot.classList.add("cursor-pointer", "transition-colors", "hover:bg-(--color-surface-subtle)");
         }
         chunkStreamList.appendChild(cardFragment);
       });
@@ -279,6 +284,31 @@
       if (chunkCountPending) chunkCountPending.textContent = String(chunkSummary.pending || 0);
       if (chunkCountFailed) chunkCountFailed.textContent = String(chunkSummary.failed || 0);
       renderChunkStream(chunkItems, chunkSummary);
+    }
+
+    function setActiveChunkCard(activeCard) {
+      if (!chunkStreamList) return;
+      chunkStreamList.querySelectorAll("[data-chunk-index]").forEach((card) => {
+        card.classList.remove("ring-2", "ring-(--color-primary)");
+      });
+      if (activeCard) {
+        activeCard.classList.add("ring-2", "ring-(--color-primary)");
+      }
+    }
+
+    function seekToChunkCard(card) {
+      if (!audioPlayer || !card) return;
+      const startMilliseconds = Number(card.dataset.chunkStart || 0);
+      const endMilliseconds = Number(card.dataset.chunkEnd || 0);
+      state.activeChunkEndSeconds = endMilliseconds > 0 ? endMilliseconds / 1000 : null;
+      audioPlayer.currentTime = startMilliseconds / 1000;
+      setActiveChunkCard(card);
+      const playPromise = audioPlayer.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          showBanner("Playback could not start automatically. Use the audio controls to continue.");
+        });
+      }
     }
 
     function getRenderablePhase(phase) {
@@ -416,6 +446,24 @@
       eventSource.onerror = () => {
         showBanner("Live progress connection lost. The browser will keep retrying automatically.");
       };
+    }
+
+    if (chunkStreamList) {
+      chunkStreamList.addEventListener("click", (event) => {
+        const card = event.target.closest("[data-chunk-index]");
+        if (!card) return;
+        seekToChunkCard(card);
+      });
+    }
+
+    if (audioPlayer) {
+      audioPlayer.addEventListener("timeupdate", () => {
+        if (state.activeChunkEndSeconds === null) return;
+        if (audioPlayer.currentTime >= state.activeChunkEndSeconds) {
+          audioPlayer.pause();
+          state.activeChunkEndSeconds = null;
+        }
+      });
     }
 
     state.currentPhase = getRenderablePhase(state.currentPhase);
