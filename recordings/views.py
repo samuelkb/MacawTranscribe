@@ -1,17 +1,21 @@
 import json
 import logging
+from pathlib import Path
+import re
+from collections.abc import Iterator
 from typing import Final
 from uuid import UUID
 
-from django.http import HttpRequest, JsonResponse, HttpResponse
+from django.http import HttpRequest, JsonResponse, HttpResponse, FileResponse, StreamingHttpResponse
 from django.shortcuts import render, get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 
 from recordings.models import Recording, RecordingStatus
-from recordings.services import ingest_uploaded_recording, create_chunks
+from recordings.services import ingest_uploaded_recording, create_chunks, format_duration_hhmmss
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
+RANGE_HEADER_PATTERN: Final[re.Pattern[str]] = re.compile(r"bytes=(\d*)-(\d*)")
 
 
 @csrf_exempt
@@ -170,5 +174,140 @@ def recording_detail_view(request: HttpRequest, recording_id: UUID) -> HttpRespo
     return render(
         request,
         "recordings/pages/recording_detail.html",
-        {"recording": recording},
+        {
+            "recording": recording,
+            "formatted_duration": format_duration_hhmmss(
+                duration_milliseconds=recording.duration_milliseconds,
+            ),
+        },
     )
+
+
+@require_GET
+def normalized_audio_view(request: HttpRequest, recording_id: UUID) -> StreamingHttpResponse | JsonResponse:
+    """
+    Stream the normalized audio file for a recording.
+    :param request:
+    :param recording_id: UUID of the recording whose normalized audio should be served.
+    :return: StreamingHttpResponse streaming the normalized audio file.
+    """
+    recording = get_object_or_404(Recording, id=recording_id)
+    if not recording.normalized_file_path or not recording.normalized_file_path.strip():
+        return JsonResponse(
+            {
+                "error": "normalized_audio_not_ready",
+                "detail": f"Recording {recording_id} does not have normalized audio yet.",
+            },
+            status=404,
+        )
+
+    normalized_path = Path(recording.normalized_file_path)
+    if not normalized_path.exists():
+        logger.warning(
+            "normalized_audio_file_missing",
+            extra={
+                "recording_id": str(recording.id),
+                "normalized_file_path": str(normalized_path),
+            }
+        )
+        return JsonResponse(
+            {
+                "error": "normalized_audio_not_found",
+                "detail": f"Normalized audio for recording {recording_id} was not found on disk.",
+            },
+            status=404,
+        )
+
+    logger.info(
+        "normalized_audio_stream_started",
+        extra={
+            "recording_id": str(recording.id),
+            "normalized_file_path": str(normalized_path),
+        }
+    )
+
+    file_size = normalized_path.stat().st_size
+    range_header = request.headers.get("Range")
+    if not range_header:
+        response = FileResponse(
+            normalized_path.open("rb"),
+            content_type="audio/wav",
+            filename=normalized_path.name,
+        )
+        response["Content-Length"] = file_size
+        response["Accept-Ranges"] = "bytes"
+        return response
+
+    match = RANGE_HEADER_PATTERN.fullmatch(range_header.strip())
+    if match is None:
+        return JsonResponse(
+            {
+                "error": "invalid_range_header",
+                "detail": "Range header must use the bytes=start-end format.",
+            },
+            status=416,
+        )
+
+    start_text, end_text = match.groups()
+    if not start_text and not end_text:
+        return JsonResponse(
+            {
+                "error": "invalid_range_header",
+                "detail": "Range header must include a start or end byte.",
+            },
+            status=416,
+        )
+
+    if start_text:
+        start = int(start_text)
+        end = int(end_text) if end_text else file_size - 1
+    else:
+        suffix_length = int(end_text)
+        start = max(file_size - suffix_length, 0)
+        end = file_size - 1
+
+    if start >= file_size or start < 0 or end < start:
+        return JsonResponse(
+            {
+                "error": "range_not_satisfiable",
+                "detail": "Requested byte range is outside the normalized audio file.",
+            },
+            status=416,
+        )
+
+    end = min(end, file_size - 1)
+    content_length = end - start + 1
+
+    def _range_iterator(*, file_path: Path, offset: int, length: int, chunk_size: int = 8192) -> Iterator[bytes]:
+        remaining = length
+        with file_path.open("rb") as file_pointer:
+            file_pointer.seek(offset)
+            while remaining > 0:
+                read_size = min(chunk_size, remaining)
+                chunk = file_pointer.read(read_size)
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    logger.info(
+        "normalized_audio_partial_stream_started",
+        extra={
+            "recording_id": str(recording.id),
+            "normalized_file_path": str(normalized_path),
+            "range_header": range_header,
+            "start_byte": start,
+            "end_byte": end,
+            "content_length": content_length,
+        }
+    )
+
+    response = StreamingHttpResponse(
+        streaming_content=_range_iterator(file_path=normalized_path, offset=start, length=content_length),
+        status=206,
+        content_type="audio/wav",
+    )
+    response["Content-Length"] = content_length
+    response["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+    response["Accept-Ranges"] = "bytes"
+    return response

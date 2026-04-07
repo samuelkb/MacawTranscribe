@@ -1,0 +1,44 @@
+{% load i18n %}
+<section
+  id="workspace-audio-card"
+  class="rounded-2xl border border-(--color-border) bg-linear-to-r from-(--color-surface) via-(--color-surface) to-(--color-surface-subtle) p-4 shadow-(--shadow-md)"
+>
+  <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div class="flex min-w-0 flex-1 flex-col gap-4 ">
+     <div class="min-w-0">
+      <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Audio player" %}
+      </p>
+      {% if recording.normalized_file_path %}
+        <div class="rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-4 py-3 shadow-(--shadow-sm)">
+          <audio
+            id="workspace-audio-player"
+            class="w-full"
+            controls
+            controlslist="nodownload"
+            preload="metadata"
+            src="{% url 'recordings:normalized_audio' recording.id %}"
+          >
+            {% translate "Your browser does not support the audio element." %}
+          </audio>
+        </div>
+      {% else %}
+        <div class="grid h-12 flex-1 grid-cols-12 items-end gap-1 rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-3 py-2">
+          <span class="h-3 rounded-full bg-(--color-primary)"></span>
+          <span class="h-5 rounded-full bg-(--color-secondary)"></span>
+          <span class="h-7 rounded-full bg-(--color-primary)"></span>
+          <span class="h-4 rounded-full bg-(--color-secondary)"></span>
+          <span class="h-8 rounded-full bg-(--color-primary)"></span>
+          <span class="h-6 rounded-full bg-(--color-secondary)"></span>
+          <span class="h-9 rounded-full bg-(--color-primary)"></span>
+          <span class="h-5 rounded-full bg-(--color-secondary)"></span>
+          <span class="h-7 rounded-full bg-(--color-primary)"></span>
+          <span class="h-4 rounded-full bg-(--color-secondary)"></span>
+          <span class="h-6 rounded-full bg-(--color-primary)"></span>
+          <span class="h-3 rounded-full bg-(--color-secondary)"></span>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  </div>
+</section>
