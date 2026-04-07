@@ -1,0 +1,87 @@
+{% load i18n %}
+<section
+  id="workspace-phase-preparing"
+  class="rounded-2xl border border-(--color-border) bg-(--color-surface) p-6 shadow-(--shadow-md)"
+  style="min-height: var(--workspace-panel-min-height);"
+>
+  <div class="grid h-full gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.85fr)]">
+    <div class="flex flex-col justify-between">
+      <div>
+        <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Preparing workspace" %}
+        </p>
+        <h2 class="mt-3 text-(length:--text-h2-size) leading-(--text-h2-line-height) font-semibold text-(--color-text)">
+          {% translate "Uploading and organizing the recording" %}
+        </h2>
+        <p id="workspace-preparing-copy" class="mt-4 max-w-2xl text-(length:--text-body-lg-size) leading-(--text-body-lg-line-height) text-(--color-text-secondary)">
+          {% translate "The recording has been ingested. The workspace is now waiting for normalized audio so playback and downstream pipeline steps can lock onto a stable source file." %}
+        </p>
+      </div>
+
+      <div class="mt-8 rounded-2xl border border-(--color-border) bg-(--color-surface-subtle) p-5">
+        <div class="flex items-start gap-4">
+          <div class="grid size-12 shrink-0 place-items-center rounded-full bg-(--color-primary) text-white shadow-(--shadow-sm)">
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="h-6 w-6 fill-none stroke-current stroke-2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2" />
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+              {% translate "Current step" %}
+            </p>
+            <p id="workspace-preparing-step" class="mt-2 text-(length:--text-h4-size) font-semibold text-(--color-text)">
+              {% if recording.normalized_file_path %}
+                {% translate "Preparing the next phase" %}
+              {% else %}
+                {% translate "Normalizing audio" %}
+              {% endif %}
+            </p>
+            <p id="workspace-preparing-alert" class="mt-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+              {% translate "This phase is usually short. Once normalized audio exists, the pinned audio bar becomes available and the workspace can advance." %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="rounded-2xl border border-(--color-border) bg-linear-to-br from-(--color-surface-subtle) to-(--color-surface) p-5">
+      <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Readiness" %}
+      </p>
+      <ul class="mt-4 space-y-4">
+        <li class="flex items-start gap-3">
+          <span class="mt-1 grid size-6 place-items-center rounded-full bg-(--color-highlight) text-white">1</span>
+          <div>
+            <p class="font-semibold text-(--color-text)">{% translate "Upload persisted" %}</p>
+            <p class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">
+              {% translate "Original audio is stored and the recording id is already stable for recovery." %}
+            </p>
+          </div>
+        </li>
+        <li class="flex items-start gap-3">
+          <span id="workspace-normalization-badge" class="mt-1 grid size-6 place-items-center rounded-full {% if recording.normalized_file_path %}bg-(--color-primary){% else %}bg-(--color-border){% endif %} text-white">2</span>
+          <div>
+            <p class="font-semibold text-(--color-text)">{% translate "Normalized source" %}</p>
+            <p id="workspace-normalization-state" class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">
+              {% if recording.normalized_file_path %}
+                {% translate "Ready. The workspace can expose the audio bar and move forward." %}
+              {% else %}
+                {% translate "Pending. The browser is waiting for the working WAV file." %}
+              {% endif %}
+            </p>
+          </div>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="mt-1 grid size-6 place-items-center rounded-full bg-(--color-border) text-white">3</span>
+          <div>
+            <p class="font-semibold text-(--color-text)">{% translate "Next phase" %}</p>
+            <p class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">
+              {% translate "Speaker diarization takes over once the normalized file is ready." %}
+            </p>
+          </div>
+        </li>
+      </ul>
+    </aside>
+  </div>
+</section>
