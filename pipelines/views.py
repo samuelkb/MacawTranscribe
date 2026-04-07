@@ -2,15 +2,16 @@ import logging
 from typing import Final
 from uuid import UUID
 
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 
+from pipelines.events import workspace_event_stream
 from pipelines.services import upload_and_normalize_recording, upload_normalize_and_diarize_recording, \
     upload_normalize_diarize_and_vad_recording, upload_normalize_diarize_vad_and_chunk_recording, \
-    start_full_transcription, get_recording_process, start_workspace_pipeline
+    start_full_transcription, get_recording_process, start_workspace_pipeline, get_workspace_state
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -407,8 +408,59 @@ def start_workspace_pipeline_view(request: HttpRequest) -> JsonResponse:
         "normalized_file_path": recording.normalized_file_path,
         "workspace_url": reverse("recordings:recording_detail", args=[recording.id]),
         "progress_url": reverse("pipelines:recording_progress", args=[recording.id]),
+        "events_url": reverse("pipelines:workspace_events", args=[recording.id]),
     }
     return JsonResponse(payload, status=202)
+
+
+@require_GET
+def workspace_events_view(request: HttpRequest, recording_id: UUID) -> StreamingHttpResponse:
+    """
+    Stream workspace pipeline events for one recording using Server-Sent Events.
+    :param request:
+    :param recording_id: UUID of the recording whose events should be streamed.
+    :return: StreamingHttpResponse containing SSE messages.
+    """
+    response = StreamingHttpResponse(
+        streaming_content=workspace_event_stream(recording_id=recording_id),
+        content_type="text/event-stream",
+    )
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+@require_GET
+def workspace_state_view(request: HttpRequest, recording_id: UUID) -> JsonResponse:
+    """
+    Return the assembled workspace snapshot for one recording.
+    :param request:
+    :param recording_id: UUID of the recording whose workspace state should be loaded.
+    :return: JsonResponse containing the workspace state payload.
+    """
+    try:
+        payload = get_workspace_state(recording_id=recording_id)
+    except ValueError as exc:
+        return JsonResponse(
+            {
+                "error": "invalid_request",
+                "detail": str(exc),
+            },
+            status=404,
+        )
+    except Exception:
+        logger.exception(
+            "workspace_state_failed",
+            extra={"recording_id": str(recording_id)},
+        )
+        return JsonResponse(
+            {
+                "error": "workspace_state_failed",
+                "detail": "Failed to load workspace state.",
+            },
+            status=500,
+        )
+    return JsonResponse(payload, status=200)
 
 @csrf_exempt
 @require_POST

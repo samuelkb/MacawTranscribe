@@ -3,7 +3,7 @@ from django.urls import path
 from pipelines.views import upload_recording_ui, upload_normalize_recording, \
     upload_normalize_and_diarize_recording_view, upload_normalize_diarize_and_vad_recording_view, \
     upload_normalize_diarize_vad_and_chunk_recording_view, start_full_transcription_view, recording_progress_view, \
-    start_workspace_pipeline_view
+    start_workspace_pipeline_view, workspace_events_view, workspace_state_view
 
 app_name = "pipelines"
 
@@ -15,5 +15,7 @@ urlpatterns = [
     path("upload-normalize-diarize-vad-chunk/", upload_normalize_diarize_vad_and_chunk_recording_view, name="upload_normalize_diarize_vad_and_chunk_recording"),
     path("transcribe/", start_full_transcription_view, name='start_full_transcription'),
     path("workspace/start/", start_workspace_pipeline_view, name="start_workspace_pipeline"),
+    path("recordings/<uuid:recording_id>/events/", workspace_events_view, name="workspace_events"),
+    path("recordings/<uuid:recording_id>/workspace-state/", workspace_state_view, name="workspace_state"),
     path("recordings/<uuid:recording_id>/progress/", recording_progress_view, name='recording_progress'),
 ]

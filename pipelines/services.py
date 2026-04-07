@@ -5,14 +5,17 @@ from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.urls import reverse
 
 from ml.manager import ModelManager, ResolvedModelSelection
 from ml.types import BackendName, ModelName
-from pipelines.queue import enqueue_transcription_job
-from pipelines.queue_types import TranscriptionJob
+from pipelines.events import publish_workspace_event
+from pipelines.queue import enqueue_transcription_job, enqueue_workspace_pipeline_job
+from pipelines.queue_types import TranscriptionJob, WorkspacePipelineJob
 from recordings.models import Recording, RecordingStatus, ChunkStatus, Chunk
-from recordings.services import ingest_uploaded_recording, normalize_audio, create_chunks
+from recordings.services import ingest_uploaded_recording, normalize_audio, create_chunks, format_duration_hhmmss
 from speakers.services import run_diarization, run_vad
+from speakers.models import SpeakerSegment, SilenceSegment, SpeakerLabel
 
 logger: Final[logging.Logger] = logging.getLogger("pipelines")
 
@@ -160,11 +163,118 @@ class StartWorkspacePipelineResult:
     recording: Recording
 
 
+def _derive_workspace_phase(
+        *,
+        recording: Recording,
+        speaker_count: int,
+        chunk_count: int,
+) -> str:
+    """
+    Derive the current workspace phase from persisted database state.
+    :param recording: Recording instance.
+    :param speaker_count: Number of persisted speaker identities.
+    :param chunk_count: Number of persisted chunks.
+    :return: Workspace phase identifier.
+    """
+    if recording.status == RecordingStatus.FAILED:
+        return "failed"
+    if chunk_count > 0 or recording.status in {RecordingStatus.CHUNKED, RecordingStatus.TRANSCRIBING, RecordingStatus.COMPLETED}:
+        return "chunk_review"
+    if speaker_count > 0 or recording.status == RecordingStatus.DIARIZED:
+        return "speakers_ready"
+    if recording.normalized_file_path:
+        return "diarizing"
+    return "preparing"
+
+
+def get_workspace_state(*, recording_id: UUID) -> dict[str, object]:
+    """
+    Return the assembled workspace snapshot for one recording.
+    :param recording_id: UUID of the recording.
+    :return: Workspace state payload for initial render and reconnect flows.
+    """
+    try:
+        recording = Recording.objects.get(id=recording_id)
+    except Recording.DoesNotExist as exc:
+        raise ValueError(f"Recording {recording_id} was not found") from exc
+
+    speaker_labels_by_id: dict[str, str] = {
+        label.speaker_id: label.display_name
+        for label in SpeakerLabel.objects.filter(recording=recording).order_by("speaker_id")
+    }
+    speaker_ids: list[str] = list(
+        SpeakerSegment.objects.filter(recording=recording).order_by("start_time", "end_time").values_list("speaker_id", flat=True).distinct()
+    )
+    speaker_items: list[dict[str, str | None]] = [
+        {
+            "speaker_id": speaker_id,
+            "display_name": speaker_labels_by_id.get(speaker_id),
+        }
+        for speaker_id in speaker_ids
+    ]
+    silence_segment_count = SilenceSegment.objects.filter(recording=recording).count()
+    chunks: list[Chunk] = list(
+        Chunk.objects.filter(recording=recording).order_by("chunk_index")
+    )
+    chunk_items: list[dict[str, object]] = [
+        {
+            "chunk_id": str(chunk.id),
+            "chunk_index": chunk.chunk_index,
+            "start_time": chunk.start_time,
+            "end_time": chunk.end_time,
+            "status": chunk.status,
+            "has_transcript": hasattr(chunk, "transcript"),
+        }
+        for chunk in chunks
+    ]
+    chunk_count = len(chunks)
+    workspace_phase = _derive_workspace_phase(
+        recording=recording,
+        speaker_count=len(speaker_ids),
+        chunk_count=chunk_count,
+    )
+
+    return {
+        "recording_id": str(recording.id),
+        "recording_status": recording.status,
+        "workspace_phase": workspace_phase,
+        "recording": {
+            "original_file_name": recording.original_file_name,
+            "duration_milliseconds": recording.duration_milliseconds,
+            "formatted_duration": format_duration_hhmmss(duration_milliseconds=recording.duration_milliseconds),
+            "has_normalized_audio": bool(recording.normalized_file_path),
+            "normalized_audio_url": (
+                reverse("recordings:normalized_audio", args=[recording.id])
+                if recording.normalized_file_path
+                else None
+            ),
+        },
+        "speakers": {
+            "count": len(speaker_ids),
+            "items": speaker_items,
+        },
+        "vad": {
+            "silence_segment_count": silence_segment_count,
+            "completed": silence_segment_count > 0,
+        },
+        "chunks": {
+            "total": chunk_count,
+            "pending": sum(1 for chunk in chunks if chunk.status == ChunkStatus.PENDING),
+            "queued": sum(1 for chunk in chunks if chunk.status == ChunkStatus.QUEUED),
+            "processing": sum(1 for chunk in chunks if chunk.status == ChunkStatus.PROCESSING),
+            "completed": sum(1 for chunk in chunks if chunk.status == ChunkStatus.COMPLETED),
+            "failed": sum(1 for chunk in chunks if chunk.status == ChunkStatus.FAILED),
+            "needs_review": sum(1 for chunk in chunks if chunk.status == ChunkStatus.NEEDS_REVIEW),
+            "items": chunk_items,
+        },
+    }
+
+
 def run_workspace_pipeline(*, recording_id: UUID) -> None:
     """
-    Placeholder for the asynchronous workspace pipeline runner.
+    Run the workspace preprocessing pipeline for one recording.
 
-    This will be replaced by the background preprocessing execution that:
+    This orchestration flow executes the current preprocessing stages:
     1. normalizes the uploaded recording
     2. runs diarization
     3. runs VAD
@@ -173,10 +283,16 @@ def run_workspace_pipeline(*, recording_id: UUID) -> None:
     :param recording_id: UUID of the recording whose pipeline should run.
     :return: None
     """
+    try:
+        recording = Recording.objects.get(id=recording_id)
+    except Recording.DoesNotExist as exc:
+        raise ValueError(f"Recording {recording_id} was not found") from exc
+
     logger.info(
-        "workspace_pipeline_background_start_requested",
+        "workspace_pipeline_processing_started",
         extra={
             "recording_id": str(recording_id),
+            "status": recording.status,
             "steps": [
                 "normalize_audio",
                 "run_diarization",
@@ -185,6 +301,281 @@ def run_workspace_pipeline(*, recording_id: UUID) -> None:
                 "queue_jobs",
             ],
         }
+    )
+    publish_workspace_event(
+        recording_id=recording.id,
+        event_type="pipeline_started",
+        payload={
+            "workspace_phase": "preparing",
+            "recording_status": recording.status,
+        },
+    )
+
+    try:
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_started",
+            payload={
+                "step": "normalization",
+                "workspace_phase": "preparing",
+            },
+        )
+        recording = normalize_audio(recording=recording)
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_completed",
+            payload={
+                "step": "normalization",
+                "workspace_phase": "preparing",
+                "recording_status": recording.status,
+            },
+        )
+    except Exception as exc:
+        warning = "Upload succeeded but normalization failed."
+        logger.warning(
+            "workspace_pipeline_normalization_failed_after_upload",
+            extra={
+                "recording_id": str(recording.id),
+                "status": recording.status,
+                "warning": warning,
+                "error": str(exc),
+            }
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="pipeline_failed",
+            payload={
+                "step": "normalization",
+                "workspace_phase": "preparing",
+                "recording_status": recording.status,
+                "message": warning,
+            },
+        )
+        raise
+
+    try:
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_started",
+            payload={
+                "step": "diarization",
+                "workspace_phase": "diarizing",
+            },
+        )
+        run_diarization(recording=recording)
+        recording.refresh_from_db()
+        speaker_ids: list[str] = list(
+            SpeakerSegment.objects.filter(recording=recording).order_by("start_time", "end_time").values_list("speaker_id", flat=True).distinct()
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="speakers_detected",
+            payload={
+                "workspace_phase": "speakers_ready",
+                "recording_status": recording.status,
+                "speaker_count": len(speaker_ids),
+                "speaker_ids": speaker_ids,
+            },
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_completed",
+            payload={
+                "step": "diarization",
+                "workspace_phase": "speakers_ready",
+                "recording_status": recording.status,
+            },
+        )
+    except Exception as exc:
+        recording.refresh_from_db()
+        warning = "Upload and normalization succeeded but diarization failed."
+        logger.warning(
+            "workspace_pipeline_diarization_failed_after_normalization",
+            extra={
+                "recording_id": str(recording.id),
+                "status": recording.status,
+                "warning": warning,
+                "error": str(exc),
+            }
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="pipeline_failed",
+            payload={
+                "step": "diarization",
+                "workspace_phase": "diarizing",
+                "recording_status": recording.status,
+                "message": warning,
+            },
+        )
+        raise
+
+    try:
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_started",
+            payload={
+                "step": "vad",
+                "workspace_phase": "speakers_ready",
+            },
+        )
+        run_vad(recording=recording)
+        silence_segment_count = SilenceSegment.objects.filter(recording=recording).count()
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_completed",
+            payload={
+                "step": "vad",
+                "workspace_phase": "speakers_ready",
+                "recording_status": recording.status,
+                "silence_segment_count": silence_segment_count,
+            },
+        )
+    except Exception as exc:
+        recording.refresh_from_db()
+        warning = "Upload, normalization, and diarization succeeded but VAD failed."
+        logger.warning(
+            "workspace_pipeline_vad_failed_after_diarization",
+            extra={
+                "recording_id": str(recording.id),
+                "status": recording.status,
+                "warning": warning,
+                "error": str(exc),
+            }
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="pipeline_failed",
+            payload={
+                "step": "vad",
+                "workspace_phase": "speakers_ready",
+                "recording_status": recording.status,
+                "message": warning,
+            },
+        )
+        raise
+
+    try:
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_started",
+            payload={
+                "step": "chunking",
+                "workspace_phase": "speakers_ready",
+            },
+        )
+        create_chunks(recording=recording)
+        recording.refresh_from_db()
+        total_chunks = Chunk.objects.filter(recording=recording).count()
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="chunks_created",
+            payload={
+                "workspace_phase": "chunk_review",
+                "recording_status": recording.status,
+                "total_chunks": total_chunks,
+            },
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_completed",
+            payload={
+                "step": "chunking",
+                "workspace_phase": "chunk_review",
+                "recording_status": recording.status,
+                "total_chunks": total_chunks,
+            },
+        )
+    except Exception as exc:
+        recording.refresh_from_db()
+        warning = "Upload, normalization, diarization, and VAD succeeded but chunk creation failed."
+        logger.warning(
+            "workspace_pipeline_chunk_creation_failed_after_vad",
+            extra={
+                "recording_id": str(recording.id),
+                "status": recording.status,
+                "warning": warning,
+                "error": str(exc),
+            }
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="pipeline_failed",
+            payload={
+                "step": "chunking",
+                "workspace_phase": "speakers_ready",
+                "recording_status": recording.status,
+                "message": warning,
+            },
+        )
+        raise
+
+    recording.refresh_from_db()
+
+    try:
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_started",
+            payload={
+                "step": "queue_jobs",
+                "workspace_phase": "chunk_review",
+            },
+        )
+        queue_jobs(recording=recording)
+        recording.refresh_from_db()
+        chunk_progress_payload = get_recording_process(recording_id=recording.id)
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="chunk_progress",
+            payload=chunk_progress_payload,
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="step_completed",
+            payload={
+                "step": "queue_jobs",
+                "workspace_phase": "chunk_review",
+                "recording_status": recording.status,
+            },
+        )
+    except Exception as exc:
+        recording.refresh_from_db()
+        warning = "Upload, normalization, diarization, VAD, and chunk creation succeeded but queueing failed."
+        logger.warning(
+            "workspace_pipeline_queueing_failed_after_chunk_creation",
+            extra={
+                "recording_id": str(recording.id),
+                "status": recording.status,
+                "warning": warning,
+                "error": str(exc),
+            }
+        )
+        publish_workspace_event(
+            recording_id=recording.id,
+            event_type="pipeline_failed",
+            payload={
+                "step": "queue_jobs",
+                "workspace_phase": "chunk_review",
+                "recording_status": recording.status,
+                "message": warning,
+            },
+        )
+        raise
+
+    logger.info(
+        "workspace_pipeline_processing_completed",
+        extra={
+            "recording_id": str(recording_id),
+            "status": recording.status,
+        }
+    )
+    publish_workspace_event(
+        recording_id=recording.id,
+        event_type="pipeline_completed",
+        payload={
+            "workspace_phase": "chunk_review",
+            "recording_status": recording.status,
+        },
     )
 
 
@@ -195,7 +586,7 @@ def start_workspace_pipeline(*, uploaded_file: UploadedFile) -> StartWorkspacePi
     The synchronous portion of this workflow is intentionally limited to:
     1. Persist the original upload
     2. Create the recording row in the database
-    3. Trigger the background pipeline placeholder
+    3. Enqueue the workspace background pipeline
     :param uploaded_file: Django uploaded file object.
     :return: StartWorkspacePipelineResult containing the created recording row.
     :raises ValueError: If the uploaded file is invalid.
@@ -212,7 +603,9 @@ def start_workspace_pipeline(*, uploaded_file: UploadedFile) -> StartWorkspacePi
         }
     )
 
-    run_workspace_pipeline(recording_id=recording.id)
+    enqueue_workspace_pipeline_job(
+        job=WorkspacePipelineJob(recording_id=recording.id),
+    )
 
     return StartWorkspacePipelineResult(recording=recording)
 
