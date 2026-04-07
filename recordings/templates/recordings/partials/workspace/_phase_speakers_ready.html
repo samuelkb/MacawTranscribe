@@ -1,0 +1,59 @@
+{% load i18n %}
+<section
+  id="workspace-phase-speakers-ready"
+  class="rounded-2xl border border-(--color-border) bg-(--color-surface) p-6 shadow-(--shadow-md)"
+  style="min-height: var(--workspace-panel-min-height);"
+>
+  <div class="grid h-full gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+    <div class="flex flex-col justify-between">
+      <div>
+        <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Speakers ready" %}
+        </p>
+        <h2 class="mt-3 text-(length:--text-h2-size) leading-(--text-h2-line-height) font-semibold text-(--color-text)">
+          {% translate "Voices detected and grouped" %}
+        </h2>
+        <p id="workspace-speakers-ready-copy" class="mt-4 max-w-2xl text-(length:--text-body-lg-size) leading-(--text-body-lg-line-height) text-(--color-text-secondary)">
+          {% translate "Diarization has completed successfully. The workspace now has stable speaker identities and is preparing the transition into chunk review." %}
+        </p>
+      </div>
+
+      <div class="mt-8 rounded-2xl border border-(--color-border) bg-(--color-surface-subtle) p-5">
+        <div class="flex items-start gap-4">
+          <div class="grid size-12 shrink-0 place-items-center rounded-full bg-(--color-highlight) text-white shadow-(--shadow-sm)">
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="h-6 w-6 fill-none stroke-current stroke-2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+              {% translate "Current step" %}
+            </p>
+            <p id="workspace-speakers-ready-step" class="mt-2 text-(length:--text-h4-size) font-semibold text-(--color-text)">
+              {% translate "Preparing chunks for review" %}
+            </p>
+            <p id="workspace-speakers-ready-alert" class="mt-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+              {% translate "This is a short handoff phase. The next screen will expose chunk placeholders and transcription progress." %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="rounded-2xl border border-(--color-border) bg-linear-to-br from-(--color-surface-subtle) to-(--color-surface) p-5">
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Speaker identities" %}
+        </p>
+        <span id="workspace-speakers-ready-count" class="rounded-full bg-(--color-highlight) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">
+          0
+        </span>
+      </div>
+
+      <div id="workspace-speakers-ready-empty" class="mt-5 rounded-xl border border-dashed border-(--color-border) px-4 py-6 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+        {% translate "Speaker identities will appear here as soon as the snapshot or live events deliver them." %}
+      </div>
+      <ul id="workspace-speakers-ready-list" class="mt-5 hidden space-y-3"></ul>
+    </aside>
+  </div>
+</section>
