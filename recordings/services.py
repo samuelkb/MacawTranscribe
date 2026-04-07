@@ -15,6 +15,20 @@ from recordings.models import Recording, RecordingStatus, Chunk, ChunkStatus
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
+
+def format_duration_hhmmss(*, duration_milliseconds: int | None) -> str:
+    """
+    Format a millisecond duration as HH:MM:SS for display.
+    """
+    if duration_milliseconds in (None, ""):
+        total_seconds = 0
+    else:
+        total_seconds = max(int(duration_milliseconds) // 1000, 0)
+
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
 def create_recording(
         *,
         recording_id: UUID | None = None,

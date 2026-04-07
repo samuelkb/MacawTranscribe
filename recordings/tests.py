@@ -12,7 +12,13 @@ from django.urls import reverse
 
 from recordings.files import build_recording_directory, build_original_file_path, save_uploaded_file_atomic
 from recordings.models import Chunk, Recording, RecordingStatus, ChunkStatus
-from recordings.services import create_recording, normalize_audio, ingest_uploaded_recording, create_chunks
+from recordings.services import (
+    create_recording,
+    normalize_audio,
+    ingest_uploaded_recording,
+    create_chunks,
+    format_duration_hhmmss,
+)
 from recordings.audio import AudioNormalizationError, AudioProbeError, _run_ffmpeg_normalization, \
     probe_audio_duration_milliseconds, extract_chunk_audio, ChunkAudioExtractionError
 
@@ -87,6 +93,14 @@ class CreateRecordingTests(TestCase):
             )
 
         self.assertEqual(Recording.objects.count(), 0)
+
+
+class RecordingDurationFormattingTests(SimpleTestCase):
+    def test_format_duration_hhmmss_renders_expected_output(self) -> None:
+        self.assertEqual(format_duration_hhmmss(duration_milliseconds=125_000), "00:02:05")
+
+    def test_format_duration_hhmmss_handles_missing_value(self) -> None:
+        self.assertEqual(format_duration_hhmmss(duration_milliseconds=None), "00:00:00")
 
 
 class NormalizeAudioTests(TestCase):
