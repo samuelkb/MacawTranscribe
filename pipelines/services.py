@@ -214,7 +214,7 @@ def get_workspace_state(*, recording_id: UUID) -> dict[str, object]:
     ]
     silence_segment_count = SilenceSegment.objects.filter(recording=recording).count()
     chunks: list[Chunk] = list(
-        Chunk.objects.filter(recording=recording).order_by("chunk_index")
+        Chunk.objects.filter(recording=recording).select_related("transcript").order_by("chunk_index")
     )
     chunk_items: list[dict[str, object]] = [
         {
@@ -224,6 +224,7 @@ def get_workspace_state(*, recording_id: UUID) -> dict[str, object]:
             "end_time": chunk.end_time,
             "status": chunk.status,
             "has_transcript": hasattr(chunk, "transcript"),
+            "accepted_text": chunk.transcript.accepted_text if hasattr(chunk, "transcript") else "",
         }
         for chunk in chunks
     ]
