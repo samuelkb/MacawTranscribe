@@ -294,12 +294,41 @@
 
     function buildPlaceholderChunks(totalChunks) {
       return Array.from({ length: totalChunks }, (_, index) => ({
+        chunk_id: `placeholder-${index}`,
         chunk_index: index,
         start_time: index * 30000,
         end_time: (index + 1) * 30000,
         status: "queued",
         has_transcript: false,
+        accepted_text: "",
       }));
+    }
+
+    function upsertChunkItem(chunkUpdate) {
+      const existingItems = Array.isArray(state.snapshot?.chunks?.items) ? state.snapshot.chunks.items : [];
+      const updatedChunkId = String(chunkUpdate.chunk_id || "");
+      const updatedChunkIndex = Number(chunkUpdate.chunk_index ?? -1);
+      const nextItems = [...existingItems];
+      const itemIndex = nextItems.findIndex((item) => {
+        const existingChunkId = String(item.chunk_id || "");
+        if (updatedChunkId && existingChunkId && existingChunkId === updatedChunkId) {
+          return true;
+        }
+        return Number(item.chunk_index ?? -1) === updatedChunkIndex;
+      });
+
+      if (itemIndex >= 0) {
+        nextItems[itemIndex] = {
+          ...nextItems[itemIndex],
+          ...chunkUpdate,
+        };
+      } else {
+        nextItems.push({
+          ...chunkUpdate,
+        });
+      }
+
+      return nextItems.sort((left, right) => (left.chunk_index ?? 0) - (right.chunk_index ?? 0));
     }
 
     function renderChunkStream(chunkItems, chunkSummary = {}) {
@@ -535,6 +564,29 @@
             completed: payload.completed_chunks || 0,
             failed: payload.failed_chunks || 0,
             items: state.snapshot?.chunks?.items || buildPlaceholderChunks(payload.total_chunks || 0),
+          },
+        };
+        render();
+      });
+
+      eventSource.addEventListener("chunk_updated", (event) => {
+        const payload = JSON.parse(event.data);
+        state.currentPhase = "chunk_review";
+        state.snapshot = {
+          ...(state.snapshot || {}),
+          recording_status: state.recordingStatus,
+          chunks: {
+            ...(state.snapshot?.chunks || {}),
+            items: upsertChunkItem({
+              chunk_id: payload.chunk_id,
+              chunk_index: payload.chunk_index,
+              start_time: payload.start_time,
+              end_time: payload.end_time,
+              status: payload.status,
+              has_transcript: Boolean(payload.has_transcript),
+              accepted_text: payload.accepted_text || "",
+              message: payload.message || "",
+            }),
           },
         };
         render();

@@ -10,6 +10,8 @@ from django.utils import timezone
 
 from ml.types import BackendName, ModelName
 from pipelines.chunk_heartbeat import update_chunk_heartbeat
+from pipelines.events import publish_workspace_event
+from pipelines.services import get_recording_process
 from recordings.audio import extract_chunk_audio
 from recordings.models import Chunk, ChunkStatus, RecordingStatus
 from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate, Edit
@@ -22,6 +24,43 @@ logger: Final[logging.Logger] = logging.getLogger(__name__)
 
 class ChunkTranscriptionError(RuntimeError):
     """Raised when chunk transcription fails."""
+
+
+def _publish_chunk_updated(*, chunk: Chunk, accepted_text: str = "", message: str = "") -> None:
+    """
+    Publish the current persisted state for one chunk to the workspace event stream.
+    :param chunk: Chunk whose current state should be emitted.
+    :param accepted_text: Accepted transcript text when available.
+    :param message: Optional error or status message for the UI.
+    :return: None
+    """
+    publish_workspace_event(
+        recording_id=chunk.recording_id,
+        event_type="chunk_updated",
+        payload={
+            "chunk_id": str(chunk.id),
+            "chunk_index": chunk.chunk_index,
+            "status": chunk.status,
+            "start_time": chunk.start_time,
+            "end_time": chunk.end_time,
+            "has_transcript": bool(accepted_text.strip()),
+            "accepted_text": accepted_text.strip(),
+            "message": message,
+        },
+    )
+
+
+def _publish_chunk_progress(*, recording_id: UUID) -> None:
+    """
+    Publish the current aggregate chunk progress counters for one recording.
+    :param recording_id: Recording identifier.
+    :return: None
+    """
+    publish_workspace_event(
+        recording_id=recording_id,
+        event_type="chunk_progress",
+        payload=get_recording_process(recording_id=recording_id),
+    )
 
 
 def _build_transcription_heartbeat_callback(
@@ -388,6 +427,8 @@ def transcribe_chunk_with_runtime(
     )
 
     _mark_chunk_processing(chunk=chunk, worker_id=worker_id)
+    _publish_chunk_updated(chunk=chunk)
+    _publish_chunk_progress(recording_id=chunk.recording_id)
 
     temp_audio_path: Path | None = None
 
@@ -424,6 +465,9 @@ def transcribe_chunk_with_runtime(
 
         _mark_chunk_completed(chunk=chunk)
         update_recording_completion_status(chunk=chunk)
+        chunk.refresh_from_db()
+        _publish_chunk_updated(chunk=chunk, accepted_text=transcript.accepted_text)
+        _publish_chunk_progress(recording_id=chunk.recording_id)
 
         logger.info(
             "chunk_transcription_completed",
@@ -445,6 +489,9 @@ def transcribe_chunk_with_runtime(
     except Exception as exc:
         error_message = str(exc)
         _mark_chunk_failed(chunk=chunk, error_message=error_message)
+        chunk.refresh_from_db()
+        _publish_chunk_updated(chunk=chunk, message=error_message)
+        _publish_chunk_progress(recording_id=chunk.recording_id)
 
         logger.exception(
             "chunk_transcription_failed",
@@ -495,4 +542,3 @@ def update_recording_completion_status(*, chunk: Chunk) -> None:
     if not has_incomplete_chunks:
         recording.status = RecordingStatus.COMPLETED
         recording.save(update_fields=["status", "updated_at"])
-
