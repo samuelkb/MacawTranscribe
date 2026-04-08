@@ -1,0 +1,54 @@
+{% load i18n %}
+<section
+  id="workspace-speaker-sidebar"
+  class="rounded-2xl border border-(--color-border) bg-(--color-surface) p-5 shadow-(--shadow-sm)"
+>
+  <div class="flex items-center justify-between gap-3">
+    <div>
+      <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Speaker labels" %}
+      </p>
+      <h3 class="mt-2 text-(length:--text-h4-size) font-semibold text-(--color-text)">
+        {% translate "Name each detected voice" %}
+      </h3>
+    </div>
+    <span id="workspace-speaker-sidebar-count" class="rounded-full bg-(--color-highlight) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">0</span>
+  </div>
+
+  <div id="workspace-speaker-sidebar-empty" class="mt-5 rounded-xl border border-dashed border-(--color-border) px-4 py-6 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+    {% translate "Detected speakers will appear here when diarization completes." %}
+  </div>
+
+  <div id="workspace-speaker-sidebar-list" class="mt-5 space-y-4"></div>
+
+  <template id="workspace-speaker-sidebar-item-template">
+    <article class="rounded-xl border border-(--color-border) bg-(--color-surface-subtle) p-4">
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="speaker-sidebar-id text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)"></p>
+          <p class="speaker-sidebar-name mt-2 truncate font-semibold text-(--color-text)"></p>
+        </div>
+        <span class="speaker-sidebar-badge rounded-full bg-(--color-highlight) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">
+          {% translate "Detected" %}
+        </span>
+      </div>
+
+      <form class="speaker-sidebar-form mt-4 flex gap-3">
+        <input
+          class="speaker-sidebar-input min-w-0 flex-1 rounded-xl border border-(--color-border) bg-(--color-surface) px-3 py-2 text-(length:--text-body-sm-size) text-(--color-text) outline-none"
+          type="text"
+          maxlength="255"
+          placeholder="{% translate 'Display name' %}"
+        >
+        <button
+          class="speaker-sidebar-submit shrink-0 rounded-xl bg-(--color-primary) px-4 py-2 text-(length:--text-body-sm-size) font-semibold text-white"
+          type="submit"
+        >
+          {% translate "Save" %}
+        </button>
+      </form>
+
+      <p class="speaker-sidebar-feedback mt-3 hidden text-(length:--text-body-sm-size) text-(--color-text-secondary)"></p>
+    </article>
+  </template>
+</section>

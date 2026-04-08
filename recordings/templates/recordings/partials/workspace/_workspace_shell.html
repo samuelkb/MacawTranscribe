@@ -68,6 +68,10 @@
     const chunkCountQueued = document.getElementById("workspace-chunk-count-queued");
     const chunkCountPending = document.getElementById("workspace-chunk-count-pending");
     const chunkCountFailed = document.getElementById("workspace-chunk-count-failed");
+    const speakerSidebarCount = document.getElementById("workspace-speaker-sidebar-count");
+    const speakerSidebarEmpty = document.getElementById("workspace-speaker-sidebar-empty");
+    const speakerSidebarList = document.getElementById("workspace-speaker-sidebar-list");
+    const speakerSidebarTemplate = document.getElementById("workspace-speaker-sidebar-item-template");
     const connectionBanner = document.getElementById("workspace-connection-banner");
     const phasePanels = Array.from(shell.querySelectorAll("[data-phase-panel]"));
 
@@ -191,6 +195,101 @@
           </div>
         </li>
       `).join("");
+    }
+
+    function renderSpeakerSidebar(speakerItems) {
+      if (!speakerSidebarCount || !speakerSidebarEmpty || !speakerSidebarList || !speakerSidebarTemplate) return;
+      const uniqueSpeakerItems = [];
+      const seenSpeakerIds = new Set();
+      (speakerItems || []).forEach((speaker) => {
+        const speakerId = speaker?.speaker_id;
+        if (!speakerId || seenSpeakerIds.has(speakerId)) return;
+        seenSpeakerIds.add(speakerId);
+        uniqueSpeakerItems.push(speaker);
+      });
+      speakerSidebarCount.textContent = String(uniqueSpeakerItems.length);
+      if (!uniqueSpeakerItems.length) {
+        speakerSidebarList.innerHTML = "";
+        speakerSidebarEmpty.classList.remove("hidden");
+        return;
+      }
+
+      speakerSidebarEmpty.classList.add("hidden");
+      speakerSidebarList.innerHTML = "";
+
+      uniqueSpeakerItems.forEach((speaker) => {
+        const itemFragment = speakerSidebarTemplate.content.cloneNode(true);
+        const article = itemFragment.querySelector("article");
+        const speakerIdNode = itemFragment.querySelector(".speaker-sidebar-id");
+        const speakerNameNode = itemFragment.querySelector(".speaker-sidebar-name");
+        const inputNode = itemFragment.querySelector(".speaker-sidebar-input");
+        const formNode = itemFragment.querySelector(".speaker-sidebar-form");
+        const feedbackNode = itemFragment.querySelector(".speaker-sidebar-feedback");
+
+        if (article) {
+          article.dataset.speakerId = speaker.speaker_id;
+        }
+        if (speakerIdNode) {
+          speakerIdNode.textContent = speaker.speaker_id;
+        }
+        if (speakerNameNode) {
+          speakerNameNode.textContent = speaker.display_name || speaker.speaker_id;
+        }
+        if (inputNode) {
+          inputNode.value = speaker.display_name || "";
+          inputNode.dataset.speakerId = speaker.speaker_id;
+        }
+        if (formNode) {
+          formNode.dataset.speakerId = speaker.speaker_id;
+        }
+        if (feedbackNode) {
+          feedbackNode.dataset.speakerId = speaker.speaker_id;
+        }
+        speakerSidebarList.appendChild(itemFragment);
+      });
+    }
+
+    async function saveSpeakerLabel(speakerId, displayName, feedbackNode, speakerNameNode) {
+      try {
+        const response = await fetch(`/speakers/recordings/${state.recordingId}/labels/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            speaker_id: speakerId,
+            display_name: displayName,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          if (feedbackNode) {
+            feedbackNode.textContent = payload.detail || "Failed to save speaker label.";
+            feedbackNode.classList.remove("hidden");
+          }
+          return;
+        }
+
+        if (speakerNameNode) {
+          speakerNameNode.textContent = payload.display_name;
+        }
+        if (feedbackNode) {
+          feedbackNode.textContent = "Saved.";
+          feedbackNode.classList.remove("hidden");
+        }
+        if (state.snapshot?.speakers?.items) {
+          state.snapshot.speakers.items = state.snapshot.speakers.items.map((speaker) => (
+            speaker.speaker_id === payload.speaker_id
+              ? { ...speaker, display_name: payload.display_name }
+              : speaker
+          ));
+        }
+      } catch (error) {
+        if (feedbackNode) {
+          feedbackNode.textContent = "Failed to save speaker label.";
+          feedbackNode.classList.remove("hidden");
+        }
+      }
     }
 
     function buildPlaceholderChunks(totalChunks) {
@@ -326,6 +425,7 @@
       renderPreparing();
       renderDiarizing();
       renderSpeakersReady(state.snapshot?.speakers?.items?.map((speaker) => speaker.speaker_id) || []);
+      renderSpeakerSidebar(state.snapshot?.speakers?.items || []);
       renderChunkReview();
       setPhase(getRenderablePhase(state.currentPhase));
     }
@@ -343,6 +443,7 @@
         const speakerIds = state.snapshot.speakers?.items?.map((speaker) => speaker.speaker_id) || [];
         renderSpeakerPreview(speakerIds);
         renderSpeakersReady(speakerIds);
+        renderSpeakerSidebar(state.snapshot.speakers?.items || []);
         render();
       } catch (error) {
         showBanner("The workspace could not refresh the initial state snapshot. Live events will keep trying.");
@@ -395,6 +496,7 @@
         state.currentPhase = "speakers_ready";
         renderSpeakerPreview(payload.speaker_ids || []);
         renderSpeakersReady(payload.speaker_ids || []);
+        renderSpeakerSidebar((payload.speaker_ids || []).map((speakerId) => ({ speaker_id: speakerId, display_name: null })));
         if (diarizingAlert) {
           diarizingAlert.textContent = `Detected ${payload.speaker_count || 0} speakers. The workspace is moving into the speakers-ready handoff.`;
         }
@@ -463,6 +565,28 @@
           audioPlayer.pause();
           state.activeChunkEndSeconds = null;
         }
+      });
+    }
+
+    if (speakerSidebarList) {
+      speakerSidebarList.addEventListener("submit", (event) => {
+        const form = event.target.closest(".speaker-sidebar-form");
+        if (!form) return;
+        event.preventDefault();
+        const speakerId = form.dataset.speakerId;
+        const article = form.closest("article");
+        const inputNode = form.querySelector(".speaker-sidebar-input");
+        const feedbackNode = article?.querySelector(".speaker-sidebar-feedback");
+        const speakerNameNode = article?.querySelector(".speaker-sidebar-name");
+        const displayName = inputNode?.value?.trim();
+        if (!speakerId || !displayName) {
+          if (feedbackNode) {
+            feedbackNode.textContent = "Display name must not be empty.";
+            feedbackNode.classList.remove("hidden");
+          }
+          return;
+        }
+        saveSpeakerLabel(speakerId, displayName, feedbackNode, speakerNameNode);
       });
     }
 

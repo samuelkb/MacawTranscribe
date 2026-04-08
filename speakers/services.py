@@ -8,7 +8,7 @@ from django.db import transaction
 from recordings.models import Recording, RecordingStatus
 from speakers.audio import get_diarization_model_name, run_pyannote_diarization, DiarizationSegment, VadSpeechSegment, \
     get_vad_model_name, run_vad_backend
-from speakers.models import SpeakerSegment, SilenceSegment
+from speakers.models import SpeakerSegment, SilenceSegment, SpeakerLabel
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -19,6 +19,53 @@ class SilenceInterval:
     """
     start_time: float
     end_time: float
+
+
+def save_speaker_label(*, recording: Recording, speaker_id: str, display_name: str) -> SpeakerLabel:
+    """
+    Create or update the display label for one recording speaker.
+    :param recording: Recording owning the speaker.
+    :param speaker_id: Canonical speaker identifier produced by diarization.
+    :param display_name: User-facing display label for the speaker.
+    :return: Persisted SpeakerLabel row.
+    :raises ValueError: If any value is blank or the speaker is not present in this recording.
+    """
+    normalized_speaker_id = (speaker_id or "").strip()
+    normalized_display_name = (display_name or "").strip()
+    if not normalized_speaker_id:
+        raise ValueError("speaker_id must not be empty")
+    if not normalized_display_name:
+        raise ValueError("display_name must not be empty")
+    if not SpeakerSegment.objects.filter(recording=recording, speaker_id=normalized_speaker_id).exists():
+        raise ValueError(f"Speaker {normalized_speaker_id} was not found for recording {recording.id}")
+
+    logger.info(
+        "speaker_label_save_started",
+        extra={
+            "recording_id": str(recording.id),
+            "speaker_id": normalized_speaker_id,
+            "display_name": normalized_display_name,
+        }
+    )
+
+    with transaction.atomic():
+        speaker_label, _created = SpeakerLabel.objects.update_or_create(
+            recording=recording,
+            speaker_id=normalized_speaker_id,
+            defaults={
+                "display_name": normalized_display_name,
+            },
+        )
+
+    logger.info(
+        "speaker_label_save_completed",
+        extra={
+            "recording_id": str(recording.id),
+            "speaker_id": normalized_speaker_id,
+            "display_name": speaker_label.display_name,
+        }
+    )
+    return speaker_label
 
 
 def run_diarization(*, recording: Recording) -> list[SpeakerSegment]:

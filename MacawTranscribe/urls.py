@@ -24,6 +24,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path("recordings/", include("recordings.urls")),
     path("pipelines/", include("pipelines.urls")),
+    path("speakers/", include("speakers.urls")),
     path("transcriptions/", include("transcriptions.urls")),
     path("user_settings/", include("user_settings.urls")),
     path('', home_view, name="home"),
