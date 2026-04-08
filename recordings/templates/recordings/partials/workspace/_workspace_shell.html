@@ -304,6 +304,51 @@
       }));
     }
 
+    function buildInterviewLine(line, { editable = false } = {}) {
+      const escapeHtml = (value) => String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+      const speakerLabel = line.type === "silence"
+        ? "Silence"
+        : (line.speaker_name || line.speaker_id || "Speaker");
+      const lineText = escapeHtml(String(line.text || "").trim());
+      const escapedSpeakerLabel = escapeHtml(speakerLabel);
+      const escapedTimestamp = escapeHtml(formatMilliseconds(line.start_time));
+
+      if (line.type === "silence") {
+        return "";
+      }
+
+      return `
+        <div class="flex items-start gap-3 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height)">
+          <span class="shrink-0 font-semibold uppercase tracking-[0.08em] text-(--color-text-muted)">${escapedTimestamp}</span>
+          <span class="shrink-0 font-semibold uppercase tracking-[0.08em] text-(--color-text-muted)">${escapedSpeakerLabel}</span>
+          ${
+            editable
+              ? `<textarea class="min-h-10 flex-1 resize-y border-0 bg-transparent px-0 py-0 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text) outline-none focus:outline-none focus:ring-0">${lineText}</textarea>`
+              : `<p class="min-w-0 flex-1 text-(--color-text-secondary)">${lineText}</p>`
+          }
+        </div>
+      `;
+    }
+
+    function buildReviewSection(lines, { editable = false } = {}) {
+      const filteredLines = Array.isArray(lines)
+        ? lines.filter((line) => line && line.type !== "silence")
+        : [];
+      if (!filteredLines.length) {
+        return "";
+      }
+      return `
+        <section class="space-y-3">
+          ${filteredLines.map((line) => buildInterviewLine(line, { editable })).join("")}
+        </section>
+      `;
+    }
+
     function upsertChunkItem(chunkUpdate) {
       const existingItems = Array.isArray(state.snapshot?.chunks?.items) ? state.snapshot.chunks.items : [];
       const updatedChunkId = String(chunkUpdate.chunk_id || "");
@@ -351,24 +396,39 @@
         const statusNode = cardFragment.querySelector(".chunk-card-status");
         const rangeNode = cardFragment.querySelector(".chunk-card-range");
         const copyNode = cardFragment.querySelector(".chunk-card-copy");
-        const transcriptNode = cardFragment.querySelector(".chunk-card-transcript");
 
         const chunkIndex = Number(chunk.chunk_index ?? 0);
         const status = String(chunk.status || "pending");
-        const hasTranscript = Boolean(chunk.has_transcript);
         const acceptedText = String(chunk.accepted_text || "").trim();
+        const reviewDisplay = chunk.review_display || null;
 
         if (indexNode) {
           indexNode.textContent = `Chunk ${chunkIndex + 1}`;
         }
         if (statusNode) {
           statusNode.textContent = status.replaceAll("_", " ");
+          statusNode.classList.remove("bg-(--color-border)", "bg-(--color-primary)", "bg-(--color-highlight)", "bg-(--color-error)", "bg-(--color-surface-subtle)", "text-white", "text-(--color-text-secondary)");
+          if (status === "completed") {
+            statusNode.classList.add("bg-(--color-primary)", "text-white");
+          } else if (status === "processing") {
+            statusNode.classList.add("bg-(--color-highlight)", "text-white");
+          } else if (status === "failed") {
+            statusNode.classList.add("bg-(--color-error)", "text-white");
+          } else {
+            statusNode.classList.add("bg-(--color-surface-subtle)", "text-(--color-text-secondary)");
+          }
         }
         if (rangeNode) {
           rangeNode.textContent = `${formatMilliseconds(chunk.start_time)} - ${formatMilliseconds(chunk.end_time)}`;
         }
         if (copyNode) {
-          if (acceptedText) {
+          if (reviewDisplay && (reviewDisplay.readonly_prefix_lines?.length || reviewDisplay.editable_lines?.length || reviewDisplay.readonly_next_preview_lines?.length)) {
+            copyNode.innerHTML = [
+              buildReviewSection(reviewDisplay.readonly_prefix_lines || []),
+              buildReviewSection(reviewDisplay.editable_lines || [], { editable: true }),
+              buildReviewSection(reviewDisplay.readonly_next_preview_lines || []),
+            ].filter(Boolean).join('<div class="my-4 border-t border-(--color-border)"></div>');
+          } else if (acceptedText) {
             copyNode.textContent = acceptedText;
           } else if (status === "completed") {
             copyNode.textContent = "Transcript ready for review. This chunk completed successfully but has no accepted text in the current snapshot.";
@@ -382,22 +442,11 @@
             copyNode.textContent = "This chunk placeholder is holding the timeline position until processing reaches it.";
           }
         }
-        if (transcriptNode) {
-          transcriptNode.textContent = hasTranscript ? "Transcript ready" : "No transcript";
-          transcriptNode.classList.remove("bg-(--color-border)", "bg-(--color-primary)", "bg-(--color-highlight)", "bg-(--color-error)");
-          if (status === "completed") {
-            transcriptNode.classList.add("bg-(--color-primary)");
-          } else if (status === "failed") {
-            transcriptNode.classList.add("bg-(--color-error)");
-          } else {
-            transcriptNode.classList.add("bg-(--color-border)");
-          }
-        }
         if (cardRoot) {
           cardRoot.dataset.chunkIndex = String(chunkIndex);
           cardRoot.dataset.chunkStart = String(chunk.start_time ?? 0);
           cardRoot.dataset.chunkEnd = String(chunk.end_time ?? 0);
-          cardRoot.classList.add("cursor-pointer", "transition-colors", "hover:bg-(--color-surface-subtle)");
+          cardRoot.classList.add("transition-colors", "hover:bg-(--color-surface-subtle)");
         }
         chunkStreamList.appendChild(cardFragment);
       });
@@ -586,6 +635,7 @@
               has_transcript: Boolean(payload.has_transcript),
               accepted_text: payload.accepted_text || "",
               message: payload.message || "",
+              review_display: payload.review_display || null,
             }),
           },
         };
@@ -604,7 +654,9 @@
 
     if (chunkStreamList) {
       chunkStreamList.addEventListener("click", (event) => {
-        const card = event.target.closest("[data-chunk-index]");
+        const trigger = event.target.closest(".chunk-card-play-trigger");
+        if (!trigger) return;
+        const card = trigger.closest("[data-chunk-index]");
         if (!card) return;
         seekToChunkCard(card);
       });

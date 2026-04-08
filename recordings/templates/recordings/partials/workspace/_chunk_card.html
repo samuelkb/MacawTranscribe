@@ -1,27 +1,35 @@
 {% load i18n %}
 <template id="workspace-chunk-card-template">
   <article class="rounded-2xl border border-(--color-border) bg-(--color-surface) px-4 py-4 shadow-(--shadow-sm)">
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div class="flex items-start justify-between gap-4">
       <div class="min-w-0">
-        <div class="flex flex-wrap items-center gap-3">
-          <p class="chunk-card-index text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-text-muted)">
-            {% translate "Chunk" %}
-          </p>
-          <span class="chunk-card-status rounded-full bg-(--color-surface-subtle) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-(--color-text-secondary)">
-            {% translate "Pending" %}
-          </span>
-        </div>
-        <p class="chunk-card-range mt-3 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)"></p>
-        <p class="chunk-card-copy mt-3 text-(length:--text-body-size) leading-(--text-body-line-height) text-(--color-text)">
-          {% translate "Waiting for transcription output." %}
+        <p class="chunk-card-index text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Chunk" %}
         </p>
+        <button
+          type="button"
+          class="chunk-card-play-trigger mt-3 inline-flex items-center gap-2 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)"
+        >
+          <span aria-hidden="true" class="text-(length:--text-meta-sm-size)">▶</span>
+          <span class="chunk-card-range"></span>
+        </button>
       </div>
+      <span class="chunk-card-status shrink-0 rounded-full bg-(--color-surface-subtle) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-(--color-text-secondary)">
+        {% translate "Pending" %}
+      </span>
+    </div>
 
-      <div class="flex shrink-0 items-center gap-3">
-        <span class="chunk-card-transcript rounded-full bg-(--color-border) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">
-          {% translate "No transcript" %}
-        </span>
-      </div>
+    <div class="chunk-card-copy mt-4 text-(length:--text-body-size) leading-(--text-body-line-height) text-(--color-text)">
+      {% translate "Waiting for transcription output." %}
+    </div>
+
+    <div class="mt-4 flex justify-end">
+      <button
+        type="button"
+        class="chunk-card-accept rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-4 py-2 text-(length:--text-body-sm-size) font-semibold text-(--color-text)"
+      >
+        {% translate "Accept" %}
+      </button>
     </div>
   </article>
 </template>

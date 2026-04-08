@@ -16,6 +16,7 @@ from recordings.models import Recording, RecordingStatus, ChunkStatus, Chunk
 from recordings.services import ingest_uploaded_recording, normalize_audio, create_chunks, format_duration_hhmmss
 from speakers.services import run_diarization, run_vad
 from speakers.models import SpeakerSegment, SilenceSegment, SpeakerLabel
+from transcriptions.assembly import assemble_chunk_review_display
 
 logger: Final[logging.Logger] = logging.getLogger("pipelines")
 
@@ -216,18 +217,32 @@ def get_workspace_state(*, recording_id: UUID) -> dict[str, object]:
     chunks: list[Chunk] = list(
         Chunk.objects.filter(recording=recording).select_related("transcript").order_by("chunk_index")
     )
-    chunk_items: list[dict[str, object]] = [
-        {
-            "chunk_id": str(chunk.id),
-            "chunk_index": chunk.chunk_index,
-            "start_time": chunk.start_time,
-            "end_time": chunk.end_time,
-            "status": chunk.status,
-            "has_transcript": hasattr(chunk, "transcript"),
-            "accepted_text": chunk.transcript.accepted_text if hasattr(chunk, "transcript") else "",
-        }
-        for chunk in chunks
-    ]
+    next_chunks_by_id: dict[str, Chunk | None] = {
+        str(chunk.id): chunks[index + 1] if index + 1 < len(chunks) else None
+        for index, chunk in enumerate(chunks)
+    }
+    chunk_items: list[dict[str, object]] = []
+    for chunk in chunks:
+        has_transcript = hasattr(chunk, "transcript")
+        chunk_items.append(
+            {
+                "chunk_id": str(chunk.id),
+                "chunk_index": chunk.chunk_index,
+                "start_time": chunk.start_time,
+                "end_time": chunk.end_time,
+                "status": chunk.status,
+                "has_transcript": has_transcript,
+                "accepted_text": chunk.transcript.accepted_text if has_transcript else "",
+                "review_display": (
+                    assemble_chunk_review_display(
+                        chunk=chunk,
+                        next_chunk=next_chunks_by_id[str(chunk.id)],
+                    )
+                    if has_transcript and chunk.status in {ChunkStatus.COMPLETED, ChunkStatus.NEEDS_REVIEW}
+                    else None
+                ),
+            }
+        )
     chunk_count = len(chunks)
     workspace_phase = _derive_workspace_phase(
         recording=recording,

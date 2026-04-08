@@ -14,6 +14,7 @@ from pipelines.events import publish_workspace_event
 from pipelines.services import get_recording_process
 from recordings.audio import extract_chunk_audio
 from recordings.models import Chunk, ChunkStatus, RecordingStatus
+from transcriptions.assembly import assemble_chunk_review_display
 from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate, Edit
 from transcriptions.runtime import LoadedWorkerRuntime
 from transcriptions.services_runtime import load_worker_transcription_runtime
@@ -26,7 +27,13 @@ class ChunkTranscriptionError(RuntimeError):
     """Raised when chunk transcription fails."""
 
 
-def _publish_chunk_updated(*, chunk: Chunk, accepted_text: str = "", message: str = "") -> None:
+def _publish_chunk_updated(
+        *,
+        chunk: Chunk,
+        accepted_text: str = "",
+        message: str = "",
+        review_display: dict[str, object] | None = None,
+) -> None:
     """
     Publish the current persisted state for one chunk to the workspace event stream.
     :param chunk: Chunk whose current state should be emitted.
@@ -46,6 +53,7 @@ def _publish_chunk_updated(*, chunk: Chunk, accepted_text: str = "", message: st
             "has_transcript": bool(accepted_text.strip()),
             "accepted_text": accepted_text.strip(),
             "message": message,
+            "review_display": review_display,
         },
     )
 
@@ -466,7 +474,17 @@ def transcribe_chunk_with_runtime(
         _mark_chunk_completed(chunk=chunk)
         update_recording_completion_status(chunk=chunk)
         chunk.refresh_from_db()
-        _publish_chunk_updated(chunk=chunk, accepted_text=transcript.accepted_text)
+        next_chunk = (
+            Chunk.objects.filter(recording=chunk.recording, chunk_index=chunk.chunk_index + 1).first()
+        )
+        _publish_chunk_updated(
+            chunk=chunk,
+            accepted_text=transcript.accepted_text,
+            review_display=assemble_chunk_review_display(
+                chunk=chunk,
+                next_chunk=next_chunk,
+            ),
+        )
         _publish_chunk_progress(recording_id=chunk.recording_id)
 
         logger.info(
