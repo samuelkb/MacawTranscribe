@@ -23,6 +23,13 @@ def _format_duration_mmss(duration_milliseconds: int) -> str:
     seconds = str(total_seconds % 60).zfill(2)
     return f"{minutes}:{seconds}"
 
+
+def _parse_include_silences(value: str | None) -> bool:
+    if value is None:
+        return True
+    return value not in {"0", "false", "False", "no", "off"}
+
+
 def _parse_backend(value: str | None) -> BackendName | None:
     if value is None or not value.strip():
         return None
@@ -155,6 +162,7 @@ def full_recording_transcription_view(request: HttpRequest, recording_id: UUID) 
 
 @require_GET
 def assembled_recording_page_view(request: HttpRequest, recording_id: UUID):
+    include_silences = _parse_include_silences(request.GET.get("include_silences"))
     try:
         recording = Recording.objects.get(id=recording_id)
     except Recording.DoesNotExist:
@@ -164,12 +172,16 @@ def assembled_recording_page_view(request: HttpRequest, recording_id: UUID):
             {
                 "recording": None,
                 "formatted_duration": "00:00:00",
+                "include_silences": include_silences,
                 "assembled": {"segments": []},
             },
             status=404,
         )
 
-    assembled = assembly_recording_transcript(recording=recording)
+    assembled = assembly_recording_transcript(
+        recording=recording,
+        include_silence_annotations=include_silences,
+    )
     segments = []
     for segment in assembled.get("segments", []):
         segments.append(
@@ -185,6 +197,7 @@ def assembled_recording_page_view(request: HttpRequest, recording_id: UUID):
         {
             "recording": recording,
             "formatted_duration": format_duration_hhmmss(duration_milliseconds=recording.duration_milliseconds),
+            "include_silences": include_silences,
             "assembled": {
                 **assembled,
                 "segments": segments,
