@@ -20,28 +20,44 @@
       <p class="mt-3 max-w-3xl text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
         {% translate "Readonly full-recording view assembled from chunk transcripts, speaker diarization, and pause annotations. Chunk overlap repetitions are removed in this timeline." %}
       </p>
-      <form method="get" class="mt-5 flex items-center justify-between gap-4 rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-4 py-3">
-        <input type="hidden" name="include_silences" value="0">
-        <label class="flex items-center gap-3 text-(length:--text-body-sm-size) font-medium text-(--color-text)">
-          <input
-            type="checkbox"
-            name="include_silences"
-            value="1"
-            {% if include_silences %}checked{% endif %}
-            class="size-4 rounded border-(--color-border)"
-            onchange="this.form.submit()"
-          >
-          {% translate "Include pauses" %}
-        </label>
-        <noscript>
-          <button
-            type="submit"
-            class="rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-2 text-(length:--text-body-sm-size) font-semibold text-(--color-text)"
-          >
-            {% translate "Refresh" %}
-          </button>
-        </noscript>
-      </form>
+      {% if recording %}
+        <form method="get" class="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-(--color-border) bg-(--color-surface-subtle) px-4 py-3">
+          <input type="hidden" name="include_silences" value="0">
+          <label class="flex items-center gap-3 text-(length:--text-body-sm-size) font-medium text-(--color-text)">
+            <input
+              type="checkbox"
+              name="include_silences"
+              value="1"
+              {% if include_silences %}checked{% endif %}
+              class="size-4 rounded border-(--color-border)"
+              onchange="this.form.submit()"
+            >
+            {% translate "Include pauses" %}
+          </label>
+          <div class="flex flex-wrap items-center justify-end gap-3">
+            <a
+              href="{% url 'transcriptions:download_assembled_recording' recording.id %}?format=md&include_silences={% if include_silences %}1{% else %}0{% endif %}"
+              class="rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-2 text-(length:--text-body-sm-size) font-semibold text-(--color-text)"
+            >
+              {% translate "Download MD" %}
+            </a>
+            <a
+              href="{% url 'transcriptions:download_assembled_recording' recording.id %}?format=txt&include_silences={% if include_silences %}1{% else %}0{% endif %}"
+              class="rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-2 text-(length:--text-body-sm-size) font-semibold text-(--color-text)"
+            >
+              {% translate "Download TXT" %}
+            </a>
+          </div>
+          <noscript>
+            <button
+              type="submit"
+              class="rounded-xl border border-(--color-border) bg-(--color-surface) px-4 py-2 text-(length:--text-body-sm-size) font-semibold text-(--color-text)"
+            >
+              {% translate "Refresh" %}
+            </button>
+          </noscript>
+        </form>
+      {% endif %}
     </header>
 
     <section class="rounded-2xl border border-(--color-border) bg-(--color-surface) px-5 py-5 shadow-(--shadow-sm)">

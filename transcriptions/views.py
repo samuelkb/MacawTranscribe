@@ -3,7 +3,7 @@ import logging
 from typing import Final
 from uuid import UUID
 
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
@@ -28,6 +28,22 @@ def _parse_include_silences(value: str | None) -> bool:
     if value is None:
         return True
     return value not in {"0", "false", "False", "no", "off"}
+
+
+def _format_transcript_segments(*, segments: list[dict], output_format: str) -> str:
+    lines: list[str] = []
+    for segment in segments:
+        if segment["type"] == "speaker":
+            timestamp = _format_duration_mmss(segment["start_time"])
+            speaker_name = segment.get("speaker_name") or segment.get("speaker_id") or "Speaker"
+            text = segment.get("text", "")
+            if output_format == "md":
+                lines.append(f"**{timestamp} {speaker_name}:** {text}")
+            else:
+                lines.append(f"{timestamp} {speaker_name}: {text}")
+        else:
+            lines.append(str(segment.get("text", "")))
+    return "\n\n".join(line for line in lines if line.strip())
 
 
 def _parse_backend(value: str | None) -> BackendName | None:
@@ -205,3 +221,43 @@ def assembled_recording_page_view(request: HttpRequest, recording_id: UUID):
         },
         status=200,
     )
+
+
+@require_GET
+def download_assembled_recording_view(request: HttpRequest, recording_id: UUID) -> HttpResponse:
+    include_silences = _parse_include_silences(request.GET.get("include_silences"))
+    output_format = request.GET.get("format", "txt").strip().lower()
+    if output_format not in {"txt", "md"}:
+        return JsonResponse(
+            {
+                "error": "invalid_export_format",
+                "detail": "Supported formats are txt and md.",
+            },
+            status=400,
+        )
+
+    try:
+        recording = Recording.objects.get(id=recording_id)
+    except Recording.DoesNotExist:
+        return JsonResponse(
+            {
+                "error": "recording_not_found",
+                "detail": f"Recording {recording_id} was not found.",
+            },
+            status=404,
+        )
+
+    assembled = assembly_recording_transcript(
+        recording=recording,
+        include_silence_annotations=include_silences,
+    )
+    body = _format_transcript_segments(
+        segments=assembled.get("segments", []),
+        output_format=output_format,
+    )
+    content_type = "text/markdown; charset=utf-8" if output_format == "md" else "text/plain; charset=utf-8"
+    filename_root = recording.original_file_name.rsplit(".", 1)[0].replace('"', "")
+    filename = f"{filename_root}_transcript.{output_format}"
+    response = HttpResponse(body, content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
