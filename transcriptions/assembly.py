@@ -276,4 +276,5 @@ def assembly_recording_transcript(*, recording: Recording, overlap_ms: int = 5_0
         "recording_id": str(recording.id),
         "recording_status": recording.status,
         "full_text": "\n\n".join(part for part in full_text_parts if part.strip()),
+        "segments": grouped_segments,
     }

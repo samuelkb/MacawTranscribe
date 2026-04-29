@@ -10,10 +10,18 @@ from django.views.decorators.http import require_POST, require_GET
 
 from ml.types import BackendName, ModelName
 from recordings.models import Recording
+from recordings.services import format_duration_hhmmss
 from transcriptions.assembly import assembly_recording_transcript
 from transcriptions.services import transcribe_chunk_on_demand, ChunkTranscriptionError
 
 logger: Final[logging.Logger] = logging.getLogger(__name__)
+
+
+def _format_duration_mmss(duration_milliseconds: int) -> str:
+    total_seconds = max(int(duration_milliseconds / 1000), 0)
+    minutes = str(total_seconds // 60).zfill(2)
+    seconds = str(total_seconds % 60).zfill(2)
+    return f"{minutes}:{seconds}"
 
 def _parse_backend(value: str | None) -> BackendName | None:
     if value is None or not value.strip():
@@ -143,3 +151,44 @@ def full_recording_transcription_view(request: HttpRequest, recording_id: UUID) 
         )
 
     return JsonResponse(payload, status=200)
+
+
+@require_GET
+def assembled_recording_page_view(request: HttpRequest, recording_id: UUID):
+    try:
+        recording = Recording.objects.get(id=recording_id)
+    except Recording.DoesNotExist:
+        return render(
+            request,
+            "transcriptions/pages/assembled_recording.html",
+            {
+                "recording": None,
+                "formatted_duration": "00:00:00",
+                "assembled": {"segments": []},
+            },
+            status=404,
+        )
+
+    assembled = assembly_recording_transcript(recording=recording)
+    segments = []
+    for segment in assembled.get("segments", []):
+        segments.append(
+            {
+                **segment,
+                "display_start_time": _format_duration_mmss(segment["start_time"]),
+            }
+        )
+
+    return render(
+        request,
+        "transcriptions/pages/assembled_recording.html",
+        {
+            "recording": recording,
+            "formatted_duration": format_duration_hhmmss(duration_milliseconds=recording.duration_milliseconds),
+            "assembled": {
+                **assembled,
+                "segments": segments,
+            },
+        },
+        status=200,
+    )

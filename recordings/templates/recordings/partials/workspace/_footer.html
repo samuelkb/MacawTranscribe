@@ -1,0 +1,11 @@
+{% load i18n %}
+<div class="sticky bottom-0 z-40 mt-6 h-[8vh] border-t border-(--color-border) bg-(--color-surface)/95 backdrop-blur-sm">
+  <div class="mx-auto flex h-full w-full items-center justify-end px-4 sm:px-6 lg:px-8">
+    <a
+      href="{% url 'transcriptions:assembled_recording_page' recording.id %}"
+      class="inline-flex items-center justify-center rounded-xl bg-(--color-primary) px-5 py-3 text-(length:--text-body-sm-size) font-semibold text-white shadow-(--shadow-sm)"
+    >
+      {% translate "Accept all" %}
+    </a>
+  </div>
+</div>

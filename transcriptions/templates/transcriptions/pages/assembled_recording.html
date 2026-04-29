@@ -1,0 +1,51 @@
+{% extends "layouts/app_shell.html" %}
+{% load i18n %}
+
+{% block title %}Assembled transcript | Macaw Transcribe{% endblock %}
+{% block meta_description %}Readonly assembled recording transcript{% endblock %}
+
+{% block app_content %}
+  {% if recording %}
+    {% include "recordings/partials/_recording_header.html" %}
+  {% endif %}
+
+  <section class="mt-6 space-y-6 pb-[8vh]">
+    <header class="rounded-2xl border border-(--color-border) bg-(--color-surface) px-5 py-5 shadow-(--shadow-sm)">
+      <p class="text-(length:--text-meta-size) uppercase tracking-[0.08em] text-(--color-text-muted)">
+        {% translate "Assembled transcript" %}
+      </p>
+      <h1 class="mt-2 text-(length:--text-h3-size) font-semibold text-(--color-text)">
+        {{ recording.original_file_name }}
+      </h1>
+      <p class="mt-3 max-w-3xl text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+        {% translate "Readonly full-recording view assembled from chunk transcripts, speaker diarization, and pause annotations. Chunk overlap repetitions are removed in this timeline." %}
+      </p>
+    </header>
+
+    <section class="rounded-2xl border border-(--color-border) bg-(--color-surface) px-5 py-5 shadow-(--shadow-sm)">
+      {% if assembled.segments %}
+        <div class="space-y-4">
+          {% for segment in assembled.segments %}
+            {% if segment.type == "speaker" %}
+              <article class="flex items-start gap-4 text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height)">
+                <span class="shrink-0 font-semibold uppercase tracking-[0.08em] text-(--color-text-muted)">
+                  {{ segment.display_start_time }}
+                </span>
+                <span class="shrink-0 font-semibold uppercase tracking-[0.08em] text-(--color-text-muted)">
+                  {{ segment.speaker_name }}
+                </span>
+                <p class="min-w-0 flex-1 text-(--color-text)">{{ segment.text }}</p>
+              </article>
+            {% else %}
+              <p class="text-(length:--text-body-sm-size) italic text-(--color-text-secondary)">{{ segment.text }}</p>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="rounded-xl border border-dashed border-(--color-border) px-4 py-8 text-(length:--text-body-sm-size) text-(--color-text-secondary)">
+          {% translate "The assembled transcript will appear here as soon as completed chunk text is available." %}
+        </div>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}

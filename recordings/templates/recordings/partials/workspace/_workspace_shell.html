@@ -1,7 +1,7 @@
 {% load i18n %}
 <section
   id="workspace-shell"
-  class="pb-[7vh]"
+  class="pb-[9vh]"
   aria-label="Recording workspace"
   style="--workspace-panel-min-height: calc(93vh - 14rem);"
   data-recording-id="{{ recording.id }}"
@@ -35,6 +35,8 @@
       </div>
     </div>
   </div>
+
+  {% include "recordings/partials/workspace/_footer.html" %}
 </section>
 
 <script>
@@ -446,7 +448,7 @@
           cardRoot.dataset.chunkIndex = String(chunkIndex);
           cardRoot.dataset.chunkStart = String(chunk.start_time ?? 0);
           cardRoot.dataset.chunkEnd = String(chunk.end_time ?? 0);
-          cardRoot.classList.add("transition-colors", "hover:bg-(--color-surface-subtle)");
+          cardRoot.classList.add("transition-colors");
         }
         chunkStreamList.appendChild(cardFragment);
       });
