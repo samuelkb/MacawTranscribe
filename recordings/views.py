@@ -163,6 +163,32 @@ def home_view(request: HttpRequest) -> HttpResponse:
     )
 
 
+def recording_list_view(request: HttpRequest) -> HttpResponse:
+    """
+    Render a page listing all recordings.
+    :param request:
+    :return: Recording list page response.
+    """
+    recordings = Recording.objects.all().order_by("-updated_at", "-created_at")
+    recording_items: list[dict[str, object]] = [
+        {
+            "recording": recording,
+            "formatted_duration": format_duration_hhmmss(
+                duration_milliseconds=recording.duration_milliseconds,
+            ),
+        }
+        for recording in recordings
+    ]
+    return render(
+        request,
+        "recordings/pages/recording_list.html",
+        {
+            "recording_items": recording_items,
+            "recording_count": len(recording_items),
+        },
+    )
+
+
 def recording_detail_view(request: HttpRequest, recording_id: UUID) -> HttpResponse:
     """
     Render the recording workspace page for a specific recording.

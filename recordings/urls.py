@@ -1,10 +1,12 @@
 from django.urls import path
 
-from recordings.views import upload_recording, create_chunks_view, recording_detail_view, normalized_audio_view
+from recordings.views import upload_recording, create_chunks_view, recording_detail_view, normalized_audio_view, \
+    recording_list_view
 
 app_name = "recordings"
 
 urlpatterns = [
+    path('', recording_list_view, name='recording_list'),
     path('upload/', upload_recording, name='upload_recording'),
     path('<uuid:recording_id>/', recording_detail_view, name='recording_detail'),
     path('<uuid:recording_id>/normalized-audio/', normalized_audio_view, name='normalized_audio'),

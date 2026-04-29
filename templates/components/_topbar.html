@@ -12,7 +12,7 @@
       <span class="whitespace-nowrap font-display text-(length:--text-display-size)">Macaw Transcribe</span>
     </a>
     <nav aria-label="{% translate 'Primary navigation' %}" class="flex w-full items-center justify-center gap-(--target-gap-min) sm:w-auto sm:justify-end">
-      <a href="/" class="topbar-nav-link">
+      <a href="{% url 'recordings:recording_list' %}" class="topbar-nav-link">
         {% translate "Recordings" %}
       </a>
       <a href="/" class="topbar-nav-link">

@@ -1,0 +1,113 @@
+{% extends "layouts/app_shell.html" %}
+{% load i18n %}
+
+{% block title %}Recordings | Macaw Transcribe{% endblock %}
+{% block meta_description %}All recordings{% endblock %}
+
+{% block app_content %}
+  <section class="space-y-6">
+    <header class="flex flex-col gap-4 border-b border-(--color-border) pb-5 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-(length:--text-meta-size) font-medium uppercase tracking-[0.08em] text-(--color-text-muted)">
+          {% translate "Recordings" %}
+        </p>
+        <h1 class="mt-2 text-(length:--text-h2-size) leading-(--text-h2-line-height) font-semibold text-(--color-text)">
+          {% translate "All recordings" %}
+        </h1>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="rounded-full bg-(--color-surface-subtle) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-(--color-text-secondary)">
+          {% blocktranslate count count=recording_count %}{{ count }} item{% plural %}{{ count }} items{% endblocktranslate %}
+        </span>
+        <a href="/" class="button--comfortable rounded-md border border-(--color-border) bg-(--color-surface) px-4 text-(length:--text-button-size) leading-(--text-button-line-height) font-semibold text-(--color-text) no-underline shadow-(--shadow-sm) hover:bg-(--color-surface-subtle)">
+          {% translate "Upload" %}
+        </a>
+      </div>
+    </header>
+
+    {% if recording_items %}
+      <div class="space-y-3">
+        {% for item in recording_items %}
+          {% with recording=item.recording %}
+            <article class="flex w-full items-center justify-between gap-4 rounded-lg border border-(--color-border) bg-(--color-surface) px-5 py-4 shadow-(--shadow-sm) lg:flex-row lg:items-center">
+              <div class="min-w-0 flex-[0_1_50%]">
+                <h2 class="truncate text-(length:--text-h4-size) leading-(--text-h4-line-height) font-semibold text-(--color-text)">
+                  {{ recording.original_file_name }}
+                </h2>
+                <p class="mt-1 truncate text-(length:--text-meta-size) text-(--color-text-muted)">
+                  {{ recording.id }}
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-4 lg:grid lg:grid-cols-[7.5rem_6.5rem_10.5rem_10rem] lg:gap-5">
+                <div>
+                  <p class="mb-1 text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-text-muted) lg:hidden">
+                    {% translate "Status" %}
+                  </p>
+                  {% if recording.status == "failed" %}
+                    <span class="inline-flex rounded-full bg-(--color-error) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">
+                      {{ recording.get_status_display|default:recording.status }}
+                    </span>
+                  {% elif recording.status == "completed" %}
+                    <span class="inline-flex rounded-full bg-(--color-primary) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">
+                      {{ recording.get_status_display|default:recording.status }}
+                    </span>
+                  {% elif recording.status == "transcribing" %}
+                    <span class="inline-flex rounded-full bg-(--color-highlight) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-white">
+                      {{ recording.get_status_display|default:recording.status }}
+                    </span>
+                  {% else %}
+                    <span class="inline-flex rounded-full bg-(--color-surface-subtle) px-3 py-1 text-(length:--text-meta-sm-size) font-semibold text-(--color-text-secondary)">
+                      {{ recording.get_status_display|default:recording.status }}
+                    </span>
+                  {% endif %}
+                </div>
+
+                <div>
+                  <p class="mb-1 text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-text-muted) lg:hidden">
+                    {% translate "Length" %}
+                  </p>
+                  <p class="text-(length:--text-body-sm-size) tabular-nums text-(--color-text-secondary)">
+                    {{ item.formatted_duration }}
+                  </p>
+                </div>
+
+                <div>
+                  <p class="mb-1 text-(length:--text-meta-size) font-semibold uppercase tracking-[0.08em] text-(--color-text-muted) lg:hidden">
+                    {% translate "Date" %}
+                  </p>
+                  <p class="text-(length:--text-body-sm-size) text-(--color-text-secondary)">
+                    {{ recording.updated_at|date:"M j, Y" }}
+                  </p>
+                </div>
+
+                <div class="flex flex-wrap justify-start gap-2 lg:justify-end">
+                  <a href="{% url 'recordings:recording_detail' recording.id %}" class="rounded-md border border-(--color-border) bg-(--color-surface) px-3 py-2 text-(length:--text-body-sm-size) font-semibold text-(--color-text) no-underline hover:bg-(--color-surface-subtle)">
+                    {% translate "Open" %}
+                  </a>
+                  {% if recording.status == "completed" %}
+                    <a href="{% url 'transcriptions:assembled_recording_page' recording.id %}" class="rounded-md border border-(--color-border) bg-(--color-surface) px-3 py-2 text-(length:--text-body-sm-size) font-semibold text-(--color-text) no-underline hover:bg-(--color-surface-subtle)">
+                      {% translate "Transcript" %}
+                    </a>
+                  {% endif %}
+                </div>
+              </div>
+            </article>
+          {% endwith %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="rounded-lg border border-dashed border-(--color-border) bg-(--color-surface) px-5 py-10 text-center">
+        <h2 class="text-(length:--text-h4-size) font-semibold text-(--color-text)">
+          {% translate "No recordings yet" %}
+        </h2>
+        <p class="mx-auto mt-3 max-w-xl text-(length:--text-body-sm-size) leading-(--text-body-sm-line-height) text-(--color-text-secondary)">
+          {% translate "Upload an audio file from the home page to create your first recording workspace." %}
+        </p>
+        <a href="/" class="button--comfortable mt-5 inline-flex rounded-md bg-(--color-primary) px-5 text-(length:--text-button-size) leading-(--text-button-line-height) font-semibold text-white no-underline">
+          {% translate "Upload audio" %}
+        </a>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
