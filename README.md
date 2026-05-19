@@ -1,5 +1,5 @@
 <p align="center">
-<img src="design/macaw_logo.png" width="400" title="Macaw Transcribe" alt="Macaw logo">
+<img src="design/macaw_logo.png" width="600" title="Macaw Transcribe" alt="Macaw logo">
 </p>
 
 ## Disclaimer
@@ -22,7 +22,7 @@ This project is optimized for **Apple Silicon Macs** and runs entirely on your m
 6. [Architecture overview](#architecture-overview)
 7. [Requirements](#requirements)
 8. [Installation](#installation)
-9. Running the app
+9. [Running the app](#running-the-app)
 9. Contributing
 
 ---
@@ -412,7 +412,7 @@ Install the required host tools:
 
 <summary>If you don't have Homebrew: Click to expand/collapse</summary>
 
-Follow the official instructions at [brew.sh](https://brew.sh/)
+Follow the official instructions at <a href="https://brew.sh/" target="_blank">brew.sh</a>.
 ```
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
@@ -424,7 +424,7 @@ brew install python@3.14 uv ffmpeg node
 ```
 
 Install Docker Desktop for PostgreSQL and Redis:
-Go to https://www.docker.com/products/docker-desktop/, download the package and follow instalation
+Go to <a href="https://www.docker.com/products/docker-desktop/" target="_blank">docker-desktop</a>, download the package and follow instalation
 guide.
 
 Verify the tools:
@@ -459,6 +459,26 @@ cp .env.example .env
 
 Edit `.env` and set real values:
 
+<details>
+
+<summary>For password and secrets generation: Click to expand/collapse</summary>
+
+We can use python to generate `DJANGO_SECRET_KEY`, `POSTGRES_PASSWORD` and `REDIS_PASSWORD`.
+
+In a terminal run:
+```
+python3
+```
+That will open an interactive Python console, where you can paste:
+```
+import secrets
+
+print(f"DJANGO_SECRET_KEY={secrets.token_urlsafe(64)}")
+print(f"POSTGRES_PASSWORD={secrets.token_urlsafe(32)}")
+print(f"REDIS_PASSWORD={secrets.token_urlsafe(32)}")
+```
+</details>
+
 ```dotenv
 DJANGO_DEBUG=True
 DJANGO_SECRET_KEY=replace_with_a_long_random_secret
@@ -481,11 +501,10 @@ REDIS_DB=0
 
 The app downloads and runs models from Hugging Face. A token is required for both MLX Whisper downloads and pyannote diarization.
 
-1. Create or sign in to a Hugging Face account (https://huggingface.co/login).
-2. Create an access token at `https://huggingface.co/settings/tokens`.
+1. Create or sign in to a Hugging Face account <a href="https://huggingface.co/login" target="_blank">HuggingFace login</a>.
+2. Create an access token with `READ` permissions at <a href="https://huggingface.co/settings/tokens" target="_blank">HuggingFace tokens</a>.
 3. Put the token in `.env` as `HUGGINGFACE_ACCESS_TOKEN`.
-4. Visit the diarization model card and accept the model terms:
-   `https://huggingface.co/pyannote/speaker-diarization-community-1`
+4. Visit the diarization model card and accept the model terms: <a href="https://huggingface.co/pyannote/speaker-diarization-community-1" target="_blank">speaker-diarization-community-1</a>
 
 The code uses `pyannote/speaker-diarization-community-1` by default. If access has not been accepted, the first diarization run will fail while loading the pyannote pipeline.
 
@@ -560,7 +579,7 @@ uv run gunicorn MacawTranscribe.wsgi:application \
   --error-logfile -
 ```
 
-Open: http://127.0.0.1:8000/
+Open: <a href="http://127.0.0.1:8000/" target="_blank">http://127.0.0.1:8000/</a>.
 
 ### 10. Start Background Supervisors
 
@@ -608,4 +627,4 @@ uv run python manage.py run_worker_supervisor
 uv run python manage.py run_workspace_supervisor
 ```
 
-4. Navigate to http://127.0.0.1:8000/ and start using the app
+4. Navigate to <a href="http://127.0.0.1:8000/" target="_blank">http://127.0.0.1:8000/</a> and start using the app
