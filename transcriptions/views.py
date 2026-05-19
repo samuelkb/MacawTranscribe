@@ -43,7 +43,7 @@ def _format_transcript_segments(*, segments: list[dict], output_format: str) -> 
                 lines.append(f"{timestamp} {speaker_name}: {text}")
         else:
             lines.append(str(segment.get("text", "")))
-    return "\n\n".join(line for line in lines if line.strip())
+    return "\n".join(line for line in lines if line.strip())
 
 
 def _parse_backend(value: str | None) -> BackendName | None:
