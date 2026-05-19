@@ -1,11 +1,12 @@
 [project]
 name = "macawtranscribe"
 version = "0.1.0"
-description = "Add your description here"
+description = "Macaw Transcribe helps you turn interviews, podcasts, research calls, and spoken notes into transcripts organized by speaker, you can review while processing continues."
 requires-python = ">=3.14"
 dependencies = [
     "django>=6.0.3",
     "django-environ>=0.13.0",
+    "gunicorn>=26.0.0",
     "mlx-whisper>=0.4.3",
     "psycopg[binary]>=3.3.3",
     "pyannote-audio>=4.0.4",
