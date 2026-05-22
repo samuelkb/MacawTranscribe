@@ -1,6 +1,8 @@
 import logging
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Final
+from unicodedata import category, normalize
 
 from recordings.models import Chunk, Recording, ChunkStatus
 from speakers.models import SpeakerSegment, SpeakerLabel, SilenceSegment
@@ -27,20 +29,6 @@ class ChunkReviewLine:
     text: str
 
 
-def _chunk_ownership_window(*, chunk: Chunk, total_chunks: int, overlap_ms: int) -> tuple[int, int]:
-    """
-    Return the global time window this chunk owns for assembly.
-    """
-    half_overlap = overlap_ms / 2
-    owned_start = chunk.start_time
-    owned_end = chunk.end_time
-    if chunk.chunk_index > 0:
-        owned_start += half_overlap
-    if chunk.chunk_index < total_chunks - 1:
-        owned_end += half_overlap
-    return owned_start, owned_end
-
-
 def _build_speaker_name_map(*, recording: Recording) -> dict[str, str]:
     return {
         label.speaker_id: label.display_name
@@ -58,6 +46,85 @@ def _load_chunk_words(*, chunk: Chunk) -> list[AssembledWord]:
         )
         for word in TranscriptWord.objects.filter(chunk=chunk).order_by("word_index")
     ]
+
+
+def _normalize_overlap_word(text: str) -> str:
+    """
+    Normalize transcript words before overlap matching.
+
+    Letters, combining marks and numbers remain Unicode-aware so accents used in common European languages are
+    preserved. Apostrophe variants are aligned for elisions and contractions.
+    """
+    apostrophe_variants = {"'", "\u2018", "\u2019", "\u02bc"}
+    normalized_text = normalize("NFKC", text).casefold()
+    normalized_characters: list[str] = []
+    for character in normalized_text:
+        if character in apostrophe_variants:
+            normalized_characters.append("'")
+            continue
+        character_category = category(character)
+        if character_category[0] in {"L", "M", "N"}:
+            normalized_characters.append(character)
+    return "".join(normalized_characters)
+
+
+def _word_intersects_window(*, word: AssembledWord, window_start: int, window_end: int) -> bool:
+    return word.end_time > window_start and word.start_time < window_end
+
+
+def _normalized_overlap_word_tokens(words: list[AssembledWord]) -> list[tuple[AssembledWord, str]]:
+    word_tokens = [(word, _normalize_overlap_word(word.text)) for word in words]
+    return [(word, token) for word, token in word_tokens if token]
+
+
+def _deduplicate_matching_chunk_overlaps(
+        *,
+        chunk_word_groups: list[tuple[Chunk, list[AssembledWord]]],
+) -> list[AssembledWord]:
+    """
+    Remove matched word spans from the next chunk's overlap while keeping unmatched overlap words from both chunks.
+    """
+    assembled_words: list[AssembledWord] = []
+
+    for index, (chunk, words) in enumerate(chunk_word_groups):
+        if index == 0:
+            assembled_words.extend(words)
+            continue
+
+        previous_chunk, previous_words = chunk_word_groups[index - 1]
+        overlap_start = chunk.start_time
+        overlap_end = previous_chunk.end_time
+        if overlap_end <= overlap_start:
+            assembled_words.extend(words)
+            continue
+
+        previous_overlap_words = [
+            word for word in previous_words
+            if _word_intersects_window(word=word, window_start=overlap_start, window_end=overlap_end)
+        ]
+        current_overlap_words = [
+            word for word in words
+            if _word_intersects_window(word=word, window_start=overlap_start, window_end=overlap_end)
+        ]
+        previous_word_tokens = _normalized_overlap_word_tokens(previous_overlap_words)
+        current_word_tokens = _normalized_overlap_word_tokens(current_overlap_words)
+        matching_blocks = SequenceMatcher(
+            a=[token for _, token in previous_word_tokens],
+            b=[token for _, token in current_word_tokens],
+            autojunk=False,
+        ).get_matching_blocks()
+
+        # Single-token matches in an overlap are too easy to confuse with legitimate repeated short words.
+        matched_current_words = {
+            current_word_tokens[token_index][0]
+            for _, block_current_index, match_size in matching_blocks
+            if match_size >= 2
+            for token_index in range(block_current_index, block_current_index + match_size)
+        }
+        assembled_words.extend(word for word in words if word not in matched_current_words)
+
+    assembled_words.sort(key=lambda word: (word.start_time, word.end_time))
+    return assembled_words
 
 
 def _build_review_lines_for_window(
@@ -200,7 +267,7 @@ def assembly_recording_transcript(*, recording: Recording, overlap_ms: int = 5_0
     """
     Assemble a full-recording transcript from chunk words, speaker segments, and optional silence segments.
     :param recording: Recording object to assemble transcription
-    :param overlap_ms: Overlap time in milliseconds
+    :param overlap_ms: Reserved overlap duration in milliseconds for recording assembly policies.
     :param include_silence_annotations: Whether to include silence annotations
     :return: Structured transcript payload suitable for API responses/UI rendering
     """
@@ -213,27 +280,8 @@ def assembly_recording_transcript(*, recording: Recording, overlap_ms: int = 5_0
             "full_text": "",
             "segments": [],
         }
-    total_chunks = len(chunks)
-    assembled_words: list[AssembledWord] = []
-
-    for chunk in chunks:
-        owned_start, owned_end = _chunk_ownership_window(chunk=chunk, total_chunks=total_chunks, overlap_ms=overlap_ms)
-        words = list(TranscriptWord.objects.filter(chunk=chunk).order_by("word_index"))
-        for word in words:
-            global_start_time = chunk.start_time + word.start_time
-            global_end_time = chunk.start_time + word.end_time
-            if global_end_time <= owned_start:
-                continue
-            if global_start_time >= owned_end:
-                continue
-            assembled_words.append(AssembledWord(
-                text=word.text,
-                start_time=global_start_time,
-                end_time=global_end_time,
-                chunk_id=str(chunk.id),
-            ))
-
-    assembled_words.sort(key=lambda w: (w.start_time, w.end_time))
+    chunk_word_groups = [(chunk, _load_chunk_words(chunk=chunk)) for chunk in chunks]
+    assembled_words = _deduplicate_matching_chunk_overlaps(chunk_word_groups=chunk_word_groups)
     speaker_segments = list(SpeakerSegment.objects.filter(recording=recording).order_by("start_time", "end_time"))
     speaker_labels = _build_speaker_name_map(recording=recording)
     silence_segments = list(SilenceSegment.objects.filter(recording=recording).order_by("start_time", "end_time"))

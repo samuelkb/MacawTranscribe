@@ -9,10 +9,13 @@ from django.urls import reverse
 from ml.backends.base import TranscribedWord, TranscriptionResult, TranscriptionBackend, LoadedModelHandle
 from ml.types import BackendName, ModelName
 from recordings.models import Recording, RecordingStatus, Chunk, ChunkStatus
+from speakers.models import SpeakerSegment
+from transcriptions.assembly import assembly_recording_transcript
 from transcriptions.models import TranscriptWord, Transcript, TranscriptCandidate
 from transcriptions.runtime import LoadedWorkerRuntime
 from transcriptions.services import persist_transcription_words, create_initial_transcript, create_transcript_candidate, \
-    apply_candidate, append_edit, transcribe_chunk, ChunkTranscriptionError, load_worker_transcription_runtime
+    apply_candidate, append_edit, transcribe_chunk_on_demand as transcribe_chunk, ChunkTranscriptionError, \
+    load_worker_transcription_runtime
 
 
 class TranscriptionServicesTest(TestCase):
@@ -422,6 +425,173 @@ class TranscriptionServicesTest(TestCase):
         temp_chunk_audio.unlink(missing_ok=True)
 
 
+class AssemblyRecordingTranscriptTests(TestCase):
+    def setUp(self) -> None:
+        self.recording = Recording.objects.create(
+            original_file_name="interview.m4a",
+            original_file_path="data/recordings/test/original.m4a",
+            normalized_file_path="data/recordings/test/normalized.wav",
+            duration_milliseconds=55_000,
+            status=RecordingStatus.COMPLETED,
+        )
+        self.first_chunk = Chunk.objects.create(
+            recording=self.recording,
+            chunk_index=0,
+            start_time=0,
+            end_time=30_000,
+            status=ChunkStatus.COMPLETED,
+        )
+        self.second_chunk = Chunk.objects.create(
+            recording=self.recording,
+            chunk_index=1,
+            start_time=25_000,
+            end_time=55_000,
+            status=ChunkStatus.COMPLETED,
+        )
+        SpeakerSegment.objects.create(
+            recording=self.recording,
+            speaker_id="speaker-1",
+            start_time=0,
+            end_time=55_000,
+            model_used="test",
+        )
+
+    def test_exact_normalized_overlap_keeps_previous_chunk_words(self) -> None:
+        self._create_words(
+            self.first_chunk,
+            [
+                ("Antes", 24_000, 24_400),
+                ("C\u2019est,", 26_000, 26_400),
+                ("\u00dcBER!", 27_000, 27_400),
+                ("a\u00e7\u00e3o.", 28_000, 28_400),
+            ],
+        )
+        self._create_words(
+            self.second_chunk,
+            [
+                ("c'est", 1_000, 1_400),
+                ("\u00fcber", 2_000, 2_400),
+                ("A\u00c7\u00c3O", 3_000, 3_400),
+                ("continue", 6_000, 6_400),
+            ],
+        )
+
+        assembled = assembly_recording_transcript(
+            recording=self.recording,
+            include_silence_annotations=False,
+        )
+
+        self.assertEqual(
+            assembled["segments"][0]["text"],
+            "Antes C\u2019est, \u00dcBER! a\u00e7\u00e3o. continue",
+        )
+
+    def test_mismatched_overlap_keeps_words_from_both_chunks(self) -> None:
+        self._create_words(
+            self.first_chunk,
+            [
+                ("transcrip", 26_000, 26_400),
+            ],
+        )
+        self._create_words(
+            self.second_chunk,
+            [
+                ("transcription", 1_000, 1_500),
+                ("finished", 6_000, 6_400),
+            ],
+        )
+
+        assembled = assembly_recording_transcript(
+            recording=self.recording,
+            include_silence_annotations=False,
+        )
+
+        self.assertEqual(
+            assembled["segments"][0]["text"],
+            "transcrip transcription finished",
+        )
+
+    def test_matching_overlap_span_drops_next_chunk_copy_after_left_prefix(self) -> None:
+        self._create_words(
+            self.first_chunk,
+            [
+                ("con", 24_900, 25_700),
+                ("este", 25_700, 26_740),
+                ("estudio", 26_740, 27_100),
+                ("que", 27_100, 27_360),
+                ("tenemos.", 27_360, 28_200),
+            ],
+        )
+        self._create_words(
+            self.second_chunk,
+            [
+                ("este", 0, 1_740),
+                ("estudio", 1_760, 2_100),
+                ("que", 2_100, 2_360),
+                ("tenemos.", 2_360, 2_500),
+                ("después", 6_000, 6_400),
+            ],
+        )
+
+        assembled = assembly_recording_transcript(
+            recording=self.recording,
+            include_silence_annotations=False,
+        )
+
+        self.assertEqual(
+            assembled["segments"][0]["text"],
+            "con este estudio que tenemos. después",
+        )
+
+    def test_cut_word_mismatch_keeps_candidates_but_drops_matching_tail(self) -> None:
+        self._create_words(
+            self.first_chunk,
+            [
+                ("quitárselas", 26_000, 26_500),
+                ("a", 26_500, 26_700),
+                ("los", 26_700, 26_900),
+                ("que", 26_900, 27_100),
+                ("ya", 27_100, 27_300),
+                ("la", 27_300, 27_500),
+                ("tenían.", 27_500, 28_000),
+            ],
+        )
+        self._create_words(
+            self.second_chunk,
+            [
+                ("quítaselas", 1_000, 1_500),
+                ("a", 1_500, 1_700),
+                ("los", 1_700, 1_900),
+                ("que", 1_900, 2_100),
+                ("ya", 2_100, 2_300),
+                ("la", 2_300, 2_500),
+                ("tenían.", 2_500, 3_000),
+            ],
+        )
+
+        assembled = assembly_recording_transcript(
+            recording=self.recording,
+            include_silence_annotations=False,
+        )
+
+        self.assertEqual(
+            assembled["segments"][0]["text"],
+            "quitárselas quítaselas a los que ya la tenían.",
+        )
+
+    @staticmethod
+    def _create_words(chunk: Chunk, words: list[tuple[str, int, int]]) -> None:
+        for word_index, (text, start_time, end_time) in enumerate(words):
+            TranscriptWord.objects.create(
+                chunk=chunk,
+                word_index=word_index,
+                text=text,
+                start_time=start_time,
+                end_time=end_time,
+                model_used="test",
+            )
+
+
 class TranscribeChunkViewTests(TestCase):
     def setUp(self) -> None:
         self.recording = Recording.objects.create(
@@ -451,7 +621,7 @@ class TranscribeChunkViewTests(TestCase):
         self.chunk.save(update_fields=["status"])
 
         with patch(
-                "transcriptions.views.transcribe_chunk",
+                "transcriptions.views.transcribe_chunk_on_demand",
                 return_value=transcript,
         ):
             response = self.client.post(
@@ -499,7 +669,7 @@ class TranscribeChunkViewTests(TestCase):
 
     def test_returns_400_when_service_rejects_request(self) -> None:
         with patch(
-                "transcriptions.views.transcribe_chunk",
+                "transcriptions.views.transcribe_chunk_on_demand",
                 side_effect=ChunkTranscriptionError("backend boom"),
         ):
             response = self.client.post(
@@ -514,7 +684,7 @@ class TranscribeChunkViewTests(TestCase):
 
     def test_returns_500_on_unexpected_failure(self) -> None:
         with patch(
-                "transcriptions.views.transcribe_chunk",
+                "transcriptions.views.transcribe_chunk_on_demand",
                 side_effect=RuntimeError("boom"),
         ):
             response = self.client.post(
@@ -528,7 +698,7 @@ class TranscribeChunkViewTests(TestCase):
 
     def test_logs_unexpected_failure(self) -> None:
         with patch(
-                "transcriptions.views.transcribe_chunk",
+                "transcriptions.views.transcribe_chunk_on_demand",
                 side_effect=RuntimeError("boom"),
         ):
             with self.assertLogs("transcriptions.views", level="ERROR") as captured:
